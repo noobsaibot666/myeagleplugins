@@ -1,0 +1,18 @@
+{
+  "id": "cool.eagle.local.vimeo-downloader",
+  "version": "0.1.0",
+  "name": "Vimeo Downloader",
+  "logo": "plugin.png",
+  "devTools": false,
+  "keywords": ["vimeo", "download", "video", "yt-dlp"],
+  "main": {
+    "url": "index.html",
+    "width": 400,
+    "height": 340,
+    "minWidth": 340,
+    "minHeight": 300,
+    "resizable": true,
+    "frame": true,
+    "backgroundColor": "#1c1c1e"
+  }
+}

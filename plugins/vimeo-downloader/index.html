@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Vimeo Downloader</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <div class="bg-glow"></div>
+
+    <div class="app">
+      <header class="titlebar">
+        <h1>Vimeo Downloader</h1>
+        <button
+          id="settingsBtn"
+          class="icon-btn"
+          title="Settings"
+          aria-label="Settings"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16">
+            <path
+              fill="currentColor"
+              d="M19.14 12.94a7.14 7.14 0 0 0 .06-.94 7.14 7.14 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.3 7.3 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.14.56-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.7 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.14 7.14 0 0 0-.06.94c0 .32.02.63.06.94L2.82 14.5a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.31.6.22l2.39-.96c.49.38 1.04.7 1.63.94l.36 2.54c.05.24.25.42.5.42h3.84c.25 0 .45-.18.5-.42l.36-2.54c.59-.24 1.14-.55 1.63-.94l2.39.96c.22.09.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"
+            />
+          </svg>
+        </button>
+      </header>
+
+      <section id="settingsPanel" class="glass settings-panel hidden">
+        <label>
+          yt-dlp path
+          <input
+            id="ytdlpPath"
+            type="text"
+            placeholder="auto-detected"
+            spellcheck="false"
+          />
+        </label>
+        <label>
+          ffmpeg path
+          <input
+            id="ffmpegPath"
+            type="text"
+            placeholder="auto-detected"
+            spellcheck="false"
+          />
+        </label>
+        <label>
+          Cookies from browser
+          <select id="cookieSource">
+            <option value="">None</option>
+            <option value="safari">Safari</option>
+            <option value="chrome">Chrome</option>
+            <option value="firefox">Firefox</option>
+            <option value="brave">Brave</option>
+            <option value="edge">Edge</option>
+          </select>
+        </label>
+        <p class="settings-hint">
+          Vimeo currently requires a logged-in session to fetch most videos
+          (yt-dlp's anonymous access is broken upstream). Safari needs Eagle
+          granted Full Disk Access in System Settings → Privacy &amp; Security,
+          then a full quit + relaunch of Eagle.
+        </p>
+        <div class="settings-actions">
+          <button id="redetectBtn" class="btn ghost">Re-detect</button>
+          <button id="closeSettingsBtn" class="btn ghost">Close</button>
+        </div>
+      </section>
+
+      <section class="glass input-card">
+        <input
+          id="urlInput"
+          type="text"
+          placeholder="Paste Vimeo video URL"
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <input
+          id="tagsInput"
+          type="text"
+          placeholder="Tags (comma separated, optional)"
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <button id="downloadBtn" class="btn primary" disabled>Download</button>
+        <p id="targetLabel" class="target-label">Saving to: —</p>
+      </section>
+
+      <section id="toolsWarning" class="glass warning hidden">
+        <span id="toolsWarningText">yt-dlp not found.</span>
+        <button id="openSettingsFromWarning" class="btn ghost small">
+          Settings
+        </button>
+      </section>
+
+      <section id="listCard" class="list-card glass collapsed">
+        <div class="list-header">
+          <button id="toggleListBtn" class="list-toggle" aria-expanded="false">
+            <svg
+              id="listChevron"
+              class="chevron"
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+            >
+              <path
+                fill="currentColor"
+                d="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z"
+              />
+            </svg>
+            <span id="listCount">0 downloads</span>
+          </button>
+          <button id="clearDoneBtn" class="btn ghost small">
+            Clear finished
+          </button>
+        </div>
+        <div class="list-body">
+          <div id="list" class="list"></div>
+          <p id="emptyState" class="empty-state">
+            Paste a Vimeo link above to get started.
+          </p>
+        </div>
+      </section>
+
+      <footer class="statusbar">
+        <span id="toolsStatus" class="status-dot"></span>
+        <span id="toolsStatusText">Checking yt-dlp / ffmpeg…</span>
+      </footer>
+    </div>
+
+    <script src="js/plugin.js"></script>
+  </body>
+</html>

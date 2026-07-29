@@ -1,0 +1,7 @@
+{
+  "name": "vimeo-downloader",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Eagle plugin: paste a Vimeo URL, download best quality via yt-dlp/ffmpeg, import into the currently selected Eagle folder. Shells out to system yt-dlp/ffmpeg — no npm runtime deps.",
+  "dependencies": {}
+}

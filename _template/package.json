@@ -1,0 +1,7 @@
+{
+  "name": "plugin-name",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Eagle plugin — this package.json is only needed if the plugin requires third-party npm modules via require(). Run `npm install <pkg>` inside this folder; Eagle loads modules from this folder's own node_modules at runtime.",
+  "dependencies": {}
+}
