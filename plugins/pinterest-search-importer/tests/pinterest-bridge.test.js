@@ -240,6 +240,7 @@ function runPlugin({ messaging = true, handler } = {}) {
     };
   }
   const view = elements.pinterestView;
+  view.src = "";
   if (messaging) {
     view.loadURL = async (url) => {
       loaded.push(url);
@@ -294,11 +295,17 @@ test("host waits for Eagle readiness, resolves an absolute preload, and navigate
   await host.listeners["searchForm:submit"]({ preventDefault() {} });
   assert.equal(host.loaded.length, 0);
   host.ready();
+  assert.equal(host.elements.searchButton.disabled, true);
+  assert.equal(host.elements.pinterestView.src, "about:blank");
   assert.match(host.elements.pinterestView.attributes.preload, /^file:\/\//);
   assert.match(
     host.elements.pinterestView.attributes.preload,
     /\/js\/webview-preload\.js$/,
   );
+  await host.listeners["searchForm:submit"]({ preventDefault() {} });
+  assert.equal(host.loaded.length, 0);
+  await host.listeners["pinterestView:dom-ready"]();
+  assert.equal(host.elements.searchButton.disabled, false);
   await host.listeners["searchForm:submit"]({ preventDefault() {} });
   assert.equal(host.loaded.at(-1), buildSearchUrl("interior design"));
   await host.listeners["pinterestView:did-finish-load"]();
@@ -314,6 +321,7 @@ test("host accepts only validated import-channel messages and relays callback st
     },
   });
   host.ready();
+  await host.listeners["pinterestView:dom-ready"]();
   await host.listeners["searchForm:submit"]({ preventDefault() {} });
   const receive = host.listeners["pinterestView:ipc-message"];
   await receive({
@@ -350,6 +358,7 @@ test("unconnected or failing import callbacks return Retry status without preten
   ]) {
     const host = runPlugin({ handler });
     host.ready();
+    await host.listeners["pinterestView:dom-ready"]();
     await host.listeners["searchForm:submit"]({ preventDefault() {} });
     await host.listeners["pinterestView:ipc-message"]({
       channel: "eagle-pinterest-import",
@@ -373,11 +382,49 @@ test("missing webview support exposes an explicit external Pinterest fallback sa
   assert.equal(host.external[0], buildSearchUrl("interior design"));
 });
 
+test("a button is injected once per card even when observer passes see multiple Pin links", () => {
+  const fixture = cardFixture({
+    extraHrefs: ["https://www.pinterest.com/pin/987654321/"],
+  });
+  const host = runCards([fixture]);
+  host.mutate({ type: "childList", addedNodes: [fixture.card] });
+  host.mutate({ type: "childList", addedNodes: [fixture.card] });
+  assert.equal(fixture.buttons.length, 1);
+  assert.equal(
+    fixture.buttons[0].getAttribute("data-eagle-pin-id"),
+    "123456789",
+  );
+});
+
+test("a click resolves the current Pin link and image after the card DOM changes", () => {
+  const fixture = cardFixture();
+  const host = runCards([fixture]);
+  fixture.setHref("https://www.pinterest.com/pin/987654321/");
+  fixture.image.attributes.src = "https://i.pinimg.com/736x/98/76/54/new.jpg";
+  fixture.image.attributes.srcset = "";
+  fixture.image.attributes["data-src"] = "";
+  fixture.buttons[0].listeners.click({
+    preventDefault() {},
+    stopImmediatePropagation() {},
+  });
+  assert.equal(host.sent.length, 1);
+  assert.equal(host.sent[0].payload.pinId, "987654321");
+  assert.equal(
+    host.sent[0].payload.pinUrl,
+    "https://www.pinterest.com/pin/987654321/",
+  );
+  assert.equal(
+    host.sent[0].payload.imageUrl,
+    "https://i.pinimg.com/736x/98/76/54/new.jpg",
+  );
+});
+
 // Small DOM fixture: only browser APIs exercised by the injected bridge are
 // supplied. No requests, Pinterest sessions, scrolling, or downloads occur.
 function cardFixture({
   imageInsideLink = true,
   href = pin.pinUrl,
+  extraHrefs = [],
   extraImages = [],
 } = {}) {
   const buttons = [];
@@ -405,6 +452,9 @@ function cardFixture({
   const card = {
     style: {},
     nodeType: 1,
+    matches() {
+      return false;
+    },
     closest(selector) {
       return selector.includes('data-test-id="pin"') ? this : null;
     },
@@ -417,7 +467,24 @@ function cardFixture({
       return selector === "img"
         ? [image, ...extraImages]
         : selector === "a[href]"
-          ? [link]
+          ? [
+              link,
+              ...extraHrefs.map((extraHref) => ({
+                getAttribute() {
+                  return extraHref;
+                },
+                querySelector() {
+                  return imageInsideLink ? image : null;
+                },
+                closest(selector) {
+                  return selector === "a[href]" ? this : card;
+                },
+                querySelectorAll() {
+                  return imageInsideLink ? [image] : [];
+                },
+                nodeType: 1,
+              })),
+            ]
           : [];
     },
     appendChild(button) {

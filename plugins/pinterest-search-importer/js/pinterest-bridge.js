@@ -140,31 +140,76 @@ function decoratePinterestCards() {
   }
 
   /** @param {Element} link */
-  function decorateLink(link) {
+  function getCard(link) {
+    return (
+      link.closest('[data-test-id="pin"]') ||
+      link.closest('[data-test-id="pinWrapper"], [data-grid-item]') ||
+      link
+    );
+  }
+
+  /** @param {Element} card @returns {Element|null} */
+  function findPinLink(card) {
+    const links = card.matches("a[href]")
+      ? [card]
+      : Array.from(card.querySelectorAll("a[href]"));
+    for (const link of links) {
+      if (link.closest("button[data-eagle-import-control]")) continue;
+      try {
+        if (
+          normalizePinUrl(
+            new URL(link.getAttribute("href"), window.location.href).href,
+          )
+        )
+          return link;
+      } catch (_error) {
+        // A malformed link is not a Pin link; keep scanning this card.
+      }
+    }
+    return null;
+  }
+
+  /** @param {Element} card @returns {{link: Element, pin: PinterestPin}|null} */
+  function getCurrentPin(card) {
+    const link = findPinLink(card);
+    if (!link) return null;
     let pinUrl;
     try {
       pinUrl = normalizePinUrl(
         new URL(link.getAttribute("href"), window.location.href).href,
       );
     } catch (_error) {
+      return null;
+    }
+    const pin = pinUrl ? extractPin(card, pinUrl, link) : null;
+    return pin ? { link, pin } : null;
+  }
+
+  /** @param {Element} card */
+  function decorateCard(card) {
+    const current = getCurrentPin(card);
+    if (!current) return;
+    const existing = card.querySelector("button[data-eagle-pin-id]");
+    if (existing) {
+      existing.setAttribute("data-eagle-pin-id", current.pin.pinId);
+      return;
+    }
+    const pin = current.pin;
+    let pinUrl;
+    try {
+      pinUrl = normalizePinUrl(
+        new URL(current.link.getAttribute("href"), window.location.href).href,
+      );
+    } catch (_error) {
       return;
     }
     if (!pinUrl) return;
-    const card =
-      link.closest('[data-test-id="pin"]') ||
-      link.closest('[data-test-id="pinWrapper"], [data-grid-item]') ||
-      link;
-    const pin = extractPin(card, pinUrl, link);
-    const existing = card.querySelector("button[data-eagle-pin-id]");
-    if (existing?.getAttribute("data-eagle-pin-id") === pin?.pinId) return;
-    // Pinterest can recycle a grid cell for a different Pin.
-    existing?.remove();
-    if (!pin) return;
     const button = document.createElement("button");
     button.type = "button";
     button.className = "pin-import-button";
     button.textContent = "Download to Eagle";
     button.setAttribute("data-eagle-pin-id", pin.pinId);
+    button.setAttribute("data-eagle-import-control", "true");
     if (window.getComputedStyle(card).position === "static") {
       /** @type {HTMLElement} */ (card).style.position = "relative";
     }
@@ -172,7 +217,7 @@ function decoratePinterestCards() {
       event.preventDefault();
       event.stopImmediatePropagation();
       if (button.disabled) return;
-      const current = extractPin(card, pinUrl, link);
+      const current = getCurrentPin(card);
       if (!current) {
         button.textContent = "Retry";
         button.className = "pin-import-button failed";
@@ -184,7 +229,7 @@ function decoratePinterestCards() {
       try {
         page.eaglePinterestHost.send({
           type: "eagle-pinterest-import",
-          payload: current,
+          payload: current.pin,
         });
       } catch (_error) {
         button.textContent = "Retry";
@@ -197,14 +242,20 @@ function decoratePinterestCards() {
 
   /** @param {Element} root */
   function inspect(root) {
-    const ancestorLink = root.closest("a[href]");
-    if (ancestorLink) decorateLink(ancestorLink);
-    const container =
-      root.closest(
+    const cards = new Set();
+    const ancestorCard = root.closest(
+      '[data-test-id="pin"], [data-test-id="pinWrapper"], [data-grid-item]',
+    );
+    if (ancestorCard) cards.add(ancestorCard);
+    if (
+      root.matches?.(
         '[data-test-id="pin"], [data-test-id="pinWrapper"], [data-grid-item]',
-      ) || root;
-    for (const link of Array.from(container.querySelectorAll("a[href]")))
-      decorateLink(link);
+      )
+    )
+      cards.add(root);
+    for (const link of Array.from(root.querySelectorAll("a[href]")))
+      cards.add(getCard(link));
+    for (const card of cards) decorateCard(card);
   }
 
   page.addEventListener("eagle-pinterest-import-status", (event) => {

@@ -13,7 +13,7 @@ const {
  * actual progress through update; resolving alone never implies an import.
  * @typedef {{state: "queued"|"importing"|"done"|"error", error?: string}} ImportUpdate
  * @typedef {(pin: import("./pinterest-bridge").PinterestPin, update: (status: ImportUpdate) => void) => void|Promise<void>} ImportHandler
- * @typedef {HTMLElement & {loadURL: (url: string) => Promise<void>, getURL: () => string, executeJavaScript: (script: string) => Promise<unknown>, send: (channel: string, status: object) => void}} PinterestWebview
+ * @typedef {HTMLElement & {src: string, loadURL: (url: string) => Promise<void>, getURL: () => string, executeJavaScript: (script: string) => Promise<unknown>, send: (channel: string, status: object) => void}} PinterestWebview
  */
 const host =
   /** @type {Window & {eaglePinterestImportHandler?: ImportHandler}} */ (
@@ -36,6 +36,7 @@ const pinterestView = /** @type {PinterestWebview} */ (
   document.getElementById("pinterestView")
 );
 let pluginReady = false;
+let guestReady = false;
 
 function setStatus(text) {
   if (importStatus) importStatus.textContent = text;
@@ -43,6 +44,7 @@ function setStatus(text) {
 
 function showFallback() {
   if (openPinterestButton) openPinterestButton.hidden = false;
+  if (searchButton) searchButton.disabled = true;
   setStatus("Embedded Pinterest messaging is unavailable. Use Open Pinterest.");
 }
 
@@ -67,7 +69,7 @@ function isPinterestPage() {
 }
 
 async function navigate() {
-  if (!pluginReady) return;
+  if (!pluginReady || !guestReady) return;
   if (!supportsWebview()) return showFallback();
   if (!searchInput?.value.trim()) {
     setStatus("Enter a Pinterest search term.");
@@ -101,7 +103,8 @@ openPinterestButton?.addEventListener("click", async () => {
 });
 
 pinterestView?.addEventListener("did-finish-load", async () => {
-  if (!pluginReady || !supportsWebview() || !isPinterestPage()) return;
+  if (!pluginReady || !guestReady || !supportsWebview() || !isPinterestPage())
+    return;
   try {
     const available = await pinterestView.executeJavaScript(
       getInjectedCardScript(),
@@ -114,8 +117,16 @@ pinterestView?.addEventListener("did-finish-load", async () => {
   }
 });
 
+pinterestView?.addEventListener("dom-ready", () => {
+  if (!pluginReady) return;
+  guestReady = true;
+  if (searchButton) searchButton.disabled = false;
+  if (!supportsWebview()) return showFallback();
+  setStatus("Enter a keyword to search Pinterest.");
+});
+
 pinterestView?.addEventListener("ipc-message", async (event) => {
-  if (!pluginReady || !isPinterestPage()) return;
+  if (!pluginReady || !guestReady || !isPinterestPage()) return;
   const ipc = /** @type {Event & {channel?: string, args?: unknown[]}} */ (
     event
   );
@@ -183,10 +194,11 @@ if (typeof eagle !== "undefined") {
       "preload",
       pathToFileURL(path.join(plugin.path, "js", "webview-preload.js")).href,
     );
+    pinterestView?.setAttribute("src", "about:blank");
+    pinterestView.src = "about:blank";
     pluginReady = true;
-    if (searchButton) searchButton.disabled = false;
     if (!supportsWebview()) return showFallback();
-    setStatus("Enter a keyword to search Pinterest.");
+    setStatus("Initializing Pinterest…");
   });
 } else {
   showFallback();
