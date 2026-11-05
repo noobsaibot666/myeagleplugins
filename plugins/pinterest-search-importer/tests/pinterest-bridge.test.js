@@ -396,6 +396,13 @@ test("a button is injected once per card even when observer passes see multiple 
   );
 });
 
+test("a nested pinWrapper and pin card receive one control for the rendered Pin", () => {
+  const fixture = cardFixture({ nestedWrapper: true });
+  const host = runCards([fixture]);
+  host.mutate({ type: "childList", addedNodes: [fixture.wrapper] });
+  assert.equal(fixture.buttons.length + fixture.wrapperButtons.length, 1);
+});
+
 test("a click resolves the current Pin link and image after the card DOM changes", () => {
   const fixture = cardFixture();
   const host = runCards([fixture]);
@@ -424,10 +431,12 @@ test("a click resolves the current Pin link and image after the card DOM changes
 function cardFixture({
   imageInsideLink = true,
   href = pin.pinUrl,
+  nestedWrapper = false,
   extraHrefs = [],
   extraImages = [],
 } = {}) {
   const buttons = [];
+  const wrapperButtons = [];
   const image = {
     alt: "Interior design",
     naturalWidth: 236,
@@ -446,6 +455,9 @@ function cardFixture({
     },
     querySelectorAll() {
       return [];
+    },
+    querySelector() {
+      return null;
     },
     nodeType: 1,
   };
@@ -491,6 +503,30 @@ function cardFixture({
       buttons.push(button);
     },
   };
+  const wrapper = {
+    style: {},
+    nodeType: 1,
+    matches(selector) {
+      return selector.includes('data-test-id="pinWrapper"');
+    },
+    closest(selector) {
+      return selector.includes('data-test-id="pinWrapper"') ? this : null;
+    },
+    querySelector(selector) {
+      if (selector.includes('data-test-id="pin"')) return card;
+      return selector === "button[data-eagle-pin-id]"
+        ? wrapperButtons[0] || null
+        : null;
+    },
+    querySelectorAll(selector) {
+      if (selector === "a[href]") return [link];
+      if (selector === "img") return [image];
+      return [];
+    },
+    appendChild(button) {
+      wrapperButtons.push(button);
+    },
+  };
   const link = {
     getAttribute() {
       return href;
@@ -503,7 +539,9 @@ function cardFixture({
         ? this
         : selector.includes('data-test-id="pin"')
           ? card
-          : null;
+          : selector.includes('data-test-id="pinWrapper"') && nestedWrapper
+            ? wrapper
+            : null;
     },
     querySelectorAll(selector) {
       return selector === "img" && imageInsideLink ? [image] : [];
@@ -512,9 +550,11 @@ function cardFixture({
   };
   return {
     card,
+    wrapper: nestedWrapper ? wrapper : null,
     link,
     image,
     buttons,
+    wrapperButtons,
     setHref(value) {
       href = value;
     },
@@ -532,6 +572,9 @@ function runCards(fixtures) {
     },
     querySelectorAll() {
       return fixtures.map((fixture) => fixture.link);
+    },
+    querySelector() {
+      return null;
     },
     appendChild() {},
   };
@@ -556,14 +599,20 @@ function runCards(fixtures) {
           },
           remove() {
             for (const fixture of fixtures) {
-              const i = fixture.buttons.indexOf(this);
-              if (i >= 0) fixture.buttons.splice(i, 1);
+              const cardIndex = fixture.buttons.indexOf(this);
+              if (cardIndex >= 0) fixture.buttons.splice(cardIndex, 1);
+              const wrapperIndex = fixture.wrapperButtons.indexOf(this);
+              if (wrapperIndex >= 0)
+                fixture.wrapperButtons.splice(wrapperIndex, 1);
             }
           },
         };
       },
       querySelectorAll() {
-        return fixtures.flatMap((fixture) => fixture.buttons);
+        return fixtures.flatMap((fixture) => [
+          ...fixture.buttons,
+          ...fixture.wrapperButtons,
+        ]);
       },
     },
     window: {
@@ -668,6 +717,11 @@ test("malformed links cannot stop other cards from being decorated", () => {
 test("a recycled card replaces its old button with the new Pin ID", () => {
   const fixture = cardFixture();
   const host = runCards([fixture]);
+  host.events["eagle-pinterest-import-status"]({
+    detail: { pinId: "123456789", state: "done" },
+  });
+  assert.equal(fixture.buttons[0].textContent, "Imported");
+  assert.equal(fixture.buttons[0].disabled, true);
   fixture.setHref("https://www.pinterest.com/pin/987654321/");
   host.mutate({ type: "attributes", target: fixture.link, addedNodes: [] });
   assert.equal(fixture.buttons.length, 1);
@@ -675,6 +729,9 @@ test("a recycled card replaces its old button with the new Pin ID", () => {
     fixture.buttons[0].getAttribute("data-eagle-pin-id"),
     "987654321",
   );
+  assert.equal(fixture.buttons[0].textContent, "Download to Eagle");
+  assert.equal(fixture.buttons[0].className, "pin-import-button");
+  assert.equal(fixture.buttons[0].disabled, false);
 });
 
 test("late images outside the Pin anchor trigger decoration of their containing card", () => {

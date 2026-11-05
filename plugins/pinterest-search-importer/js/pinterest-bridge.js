@@ -143,7 +143,8 @@ function decoratePinterestCards() {
   function getCard(link) {
     return (
       link.closest('[data-test-id="pin"]') ||
-      link.closest('[data-test-id="pinWrapper"], [data-grid-item]') ||
+      link.closest("[data-grid-item]") ||
+      link.closest('[data-test-id="pinWrapper"]') ||
       link
     );
   }
@@ -189,9 +190,17 @@ function decoratePinterestCards() {
   function decorateCard(card) {
     const current = getCurrentPin(card);
     if (!current) return;
-    const existing = card.querySelector("button[data-eagle-pin-id]");
+    const existing = /** @type {HTMLButtonElement|null} */ (
+      card.querySelector("button[data-eagle-pin-id]")
+    );
     if (existing) {
+      const previousPinId = existing.getAttribute("data-eagle-pin-id");
       existing.setAttribute("data-eagle-pin-id", current.pin.pinId);
+      if (previousPinId !== current.pin.pinId) {
+        existing.textContent = "Download to Eagle";
+        existing.className = "pin-import-button";
+        existing.disabled = false;
+      }
       return;
     }
     const pin = current.pin;
@@ -243,15 +252,12 @@ function decoratePinterestCards() {
   /** @param {Element} root */
   function inspect(root) {
     const cards = new Set();
-    const ancestorCard = root.closest(
-      '[data-test-id="pin"], [data-test-id="pinWrapper"], [data-grid-item]',
-    );
+    const ancestorCard = root.closest('[data-test-id="pin"], [data-grid-item]');
     if (ancestorCard) cards.add(ancestorCard);
-    if (
-      root.matches?.(
-        '[data-test-id="pin"], [data-test-id="pinWrapper"], [data-grid-item]',
-      )
-    )
+    const ancestorWrapper = root.closest('[data-test-id="pinWrapper"]');
+    const nestedPin = root.querySelector('[data-test-id="pin"]');
+    if (ancestorWrapper && !nestedPin) cards.add(ancestorWrapper);
+    if (root.matches?.('[data-test-id="pin"], [data-grid-item]'))
       cards.add(root);
     for (const link of Array.from(root.querySelectorAll("a[href]")))
       cards.add(getCard(link));
