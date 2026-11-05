@@ -644,6 +644,33 @@ test("changing an image in a grid-item wrapper does not add a second control", (
   assert.equal(countButtons(), 1);
 });
 
+test("a lazy image added inside a fallback Pin anchor creates its button", () => {
+  const fixture = cardFixture({ fallbackAnchor: true });
+  fixture.image.attributes = {};
+  const host = runCards([fixture]);
+  assert.equal(fixture.buttons.length, 0);
+  fixture.image.attributes.src = "https://i.pinimg.com/736x/ab/cd/ef/lazy.jpg";
+  host.mutate({ type: "attributes", target: fixture.image, addedNodes: [] });
+  assert.equal(fixture.buttons.length, 1);
+  assert.equal(
+    fixture.buttons[0].getAttribute("data-eagle-pin-id"),
+    "123456789",
+  );
+});
+
+test("a recycled fallback Pin anchor updates the control so the new Pin is importable", () => {
+  const fixture = cardFixture({ fallbackAnchor: true });
+  const host = runCards([fixture]);
+  host.events["eagle-pinterest-import-status"]({
+    detail: { pinId: "123456789", state: "done" },
+  });
+  fixture.setHref("https://www.pinterest.com/pin/456/");
+  host.mutate({ type: "attributes", target: fixture.link, addedNodes: [] });
+  assert.equal(fixture.buttons[0].getAttribute("data-eagle-pin-id"), "456");
+  assert.equal(fixture.buttons[0].textContent, "Download to Eagle");
+  assert.equal(fixture.buttons[0].disabled, false);
+});
+
 test("a click resolves the current Pin link and image after the card DOM changes", () => {
   const fixture = cardFixture();
   const host = runCards([fixture]);
@@ -674,6 +701,7 @@ function cardFixture({
   href = pin.pinUrl,
   nestedWrapper = false,
   gridItem = false,
+  fallbackAnchor = false,
   extraHrefs = [],
   extraImages = [],
 } = {}) {
@@ -693,6 +721,7 @@ function cardFixture({
       return this.attributes[key] || null;
     },
     closest(selector) {
+      if (fallbackAnchor && selector.includes("a[href]")) return link;
       if (selector.includes("data-grid-item") && gridItem) return grid;
       if (selector.includes('data-test-id="pinWrapper"') && gridItem)
         return card;
@@ -722,6 +751,7 @@ function cardFixture({
       return null;
     },
     querySelector(selector) {
+      if (fallbackAnchor) return null;
       if (selector.includes('data-test-id="pin"')) return null;
       return selector === "button[data-eagle-pin-id]"
         ? buttons[0] || null
@@ -803,13 +833,20 @@ function cardFixture({
     },
   };
   const link = {
+    style: {},
     getAttribute() {
       return href;
     },
+    matches(selector) {
+      return selector === "a[href]";
+    },
     querySelector(selector) {
+      if (selector === "button[data-eagle-pin-id]" && fallbackAnchor)
+        return buttons[0] || null;
       return selector === "img" && imageInsideLink ? image : null;
     },
     closest(selector) {
+      if (fallbackAnchor) return selector === "a[href]" ? this : null;
       return selector === "a[href]"
         ? this
         : selector.includes('data-test-id="pin"')
@@ -826,6 +863,9 @@ function cardFixture({
     },
     querySelectorAll(selector) {
       return selector === "img" && imageInsideLink ? [image] : [];
+    },
+    appendChild(button) {
+      if (fallbackAnchor) buttons.push(button);
     },
     nodeType: 1,
   };

@@ -194,6 +194,7 @@ function decoratePinterestCards() {
       node.closest('[data-test-id="pin"]') ||
       node.closest('[data-test-id="pinWrapper"]') ||
       node.closest("[data-grid-item]") ||
+      node.closest("a[href]") ||
       (node.matches?.("a[href]") ? node : null)
     );
   }
@@ -317,12 +318,8 @@ function decoratePinterestCards() {
   /** @param {Element} root */
   function inspect(root) {
     const cards = new Set();
-    const cardSelector =
-      '[data-test-id="pin"], [data-test-id="pinWrapper"], [data-grid-item]';
-    if (root.matches?.(cardSelector) || root.closest(cardSelector)) {
-      const card = getCanonicalCard(root);
-      if (card) cards.add(card);
-    }
+    const card = getCanonicalCard(root);
+    if (card) cards.add(card);
     for (const link of Array.from(root.querySelectorAll("a[href]"))) {
       const card = getOwningCard(link);
       if (card) cards.add(card);
