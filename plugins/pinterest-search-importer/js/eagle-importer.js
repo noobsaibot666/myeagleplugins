@@ -21,6 +21,7 @@ const {
  * @property {boolean} [allowLocalFallback] Opt in to a temporary-file download after URL import fails.
  * @property {(url: string, destination: string) => Promise<void>} [download] Writes only to the supplied temporary path.
  * @property {(milliseconds: number) => Promise<void>} [sleep] Retry delay dependency.
+ * @property {Pick<typeof fs.promises, "mkdtemp" | "rm">} [tempFs] Temporary directory operations.
  */
 
 const RETRY_DELAY_MS = 250;
@@ -216,8 +217,9 @@ async function importPin(eagleApi, pin, options = {}) {
 
   /** @type {string|undefined} */
   let temporaryDirectory;
+  const tempFs = options.tempFs || fs.promises;
   try {
-    temporaryDirectory = await fs.promises.mkdtemp(
+    temporaryDirectory = await tempFs.mkdtemp(
       path.join(os.tmpdir(), "eagle-pinterest-"),
     );
     const extension = path.extname(new URL(imageUrl).pathname).toLowerCase();
@@ -236,10 +238,15 @@ async function importPin(eagleApi, pin, options = {}) {
     );
   } finally {
     if (temporaryDirectory) {
-      await fs.promises.rm(temporaryDirectory, {
-        recursive: true,
-        force: true,
-      });
+      try {
+        await tempFs.rm(temporaryDirectory, {
+          recursive: true,
+          force: true,
+        });
+      } catch (_cleanupError) {
+        // Best-effort cleanup must preserve the imported item result or the
+        // original EagleImportError, so callers cannot mistake it for failure.
+      }
     }
   }
 }

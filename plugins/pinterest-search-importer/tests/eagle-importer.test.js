@@ -435,3 +435,65 @@ for (const [label, response, expectedError] of [
     adapter.verify();
   });
 }
+
+for (const outcome of ["success", "download failure", "import failure"]) {
+  test(`cleanup failure preserves the primary outcome after ${outcome}`, async () => {
+    const temporaryDirectory = path.join("/virtual", "eagle-pinterest-test");
+    const cleanupFailure = new Error("Temporary directory is locked");
+    const importFailure = new Error(outcome);
+    const events = [];
+    const options = {
+      allowLocalFallback: true,
+      tempFs: {
+        async mkdtemp(prefix) {
+          assert.equal(path.basename(prefix), "eagle-pinterest-");
+          events.push("create");
+          return temporaryDirectory;
+        },
+        async rm(directory, cleanupOptions) {
+          assert.equal(directory, temporaryDirectory);
+          assert.deepEqual(cleanupOptions, { recursive: true, force: true });
+          events.push("cleanup");
+          throw cleanupFailure;
+        },
+      },
+      async download(url, filePath) {
+        assert.equal(url, pin.imageUrl);
+        assert.equal(path.dirname(filePath), temporaryDirectory);
+        events.push("download");
+        if (outcome === "download failure") throw importFailure;
+      },
+    };
+    const eagle = {
+      item: {
+        async addFromPath(filePath) {
+          assert.equal(path.dirname(filePath), temporaryDirectory);
+          events.push("import");
+          if (outcome === "import failure") throw importFailure;
+          return "imported-item";
+        },
+      },
+    };
+    if (outcome === "success") {
+      assert.deepEqual(await importPin(eagle, pin, options), {
+        itemId: "imported-item",
+        folderIds: [],
+      });
+    } else {
+      await assert.rejects(importPin(eagle, pin, options), (error) => {
+        assert.ok(error instanceof EagleImportError);
+        assert.equal(error.code, "LOCAL_IMPORT_FAILED");
+        assert.equal(error.pinId, pin.pinId);
+        assert.equal(error.cause, importFailure);
+        assert.notEqual(error, cleanupFailure);
+        return true;
+      });
+    }
+    assert.deepEqual(
+      events,
+      outcome === "download failure"
+        ? ["create", "download", "cleanup"]
+        : ["create", "download", "import", "cleanup"],
+    );
+  });
+}
