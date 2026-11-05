@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const vm = require("node:vm");
 const fs = require("node:fs");
 const path = require("node:path");
+const { setImmediate } = require("node:timers/promises");
 const {
   buildSearchUrl,
   normalizePinUrl,
@@ -209,7 +210,7 @@ test("injected script is self-contained and returns false when messaging is unav
   );
 });
 
-function runPlugin({ messaging = true, handler } = {}) {
+function runPlugin({ messaging = true, eagleApi = {} } = {}) {
   const elements = {};
   const loaded = [];
   const sent = [];
@@ -220,6 +221,8 @@ function runPlugin({ messaging = true, handler } = {}) {
     "searchInput",
     "searchButton",
     "importStatus",
+    "importCounts",
+    "clearHistoryButton",
     "settingsButton",
     "pinterestView",
     "openPinterestButton",
@@ -253,7 +256,7 @@ function runPlugin({ messaging = true, handler } = {}) {
     view.send = (...args) => sent.push(args);
   }
   let create;
-  const page = { eaglePinterestImportHandler: handler };
+  const page = {};
   const pluginSource = fs.readFileSync(
     path.join(__dirname, "../js/plugin.js"),
     "utf8",
@@ -269,6 +272,7 @@ function runPlugin({ messaging = true, handler } = {}) {
     },
     window: page,
     eagle: {
+      ...eagleApi,
       onPluginCreate(callback) {
         create = callback;
       },
@@ -312,64 +316,93 @@ test("host waits for Eagle readiness, resolves an absolute preload, and navigate
   assert.equal(host.elements.openPinterestButton.hidden, true);
 });
 
-test("host accepts only validated import-channel messages and relays callback status", async () => {
-  const handled = [];
-  const host = runPlugin({
-    handler: (payload, update) => {
-      handled.push(payload);
-      update({ state: "done" });
-    },
-  });
+function importEvent(payload = pin, retry = false) {
+  return {
+    channel: "eagle-pinterest-import",
+    args: [{ type: "eagle-pinterest-import", payload, retry }],
+  };
+}
+
+async function readyForImport(host) {
   host.ready();
   await host.listeners["pinterestView:dom-ready"]();
   await host.listeners["searchForm:submit"]({ preventDefault() {} });
-  const receive = host.listeners["pinterestView:ipc-message"];
-  await receive({
-    channel: "unrelated",
-    args: [{ type: "eagle-pinterest-import", payload: pin }],
+}
+
+test("host validates import messages and uses the real adapter, selected folders, queue and counts", async () => {
+  const imported = [];
+  const host = runPlugin({
+    eagleApi: {
+      folder: { getSelected: async () => [{ id: "selected-folder" }] },
+      item: {
+        addFromURL: async (...args) => {
+          imported.push(args);
+          return "eagle-item";
+        },
+      },
+    },
   });
+  await readyForImport(host);
+  const receive = host.listeners["pinterestView:ipc-message"];
+  await receive({ ...importEvent(), channel: "unrelated" });
   await receive({
     channel: "eagle-pinterest-import",
     args: [{ type: "other", payload: pin }],
   });
-  await receive({
-    channel: "eagle-pinterest-import",
-    args: [{ type: "eagle-pinterest-import", payload: {} }],
-  });
-  assert.equal(handled.length, 0);
-  await receive({
-    channel: "eagle-pinterest-import",
-    args: [{ type: "eagle-pinterest-import", payload: pin }],
-  });
-  assert.equal(handled.length, 1);
-  assert.equal(handled[0].pinId, "123456789");
-  assert.deepEqual(JSON.parse(JSON.stringify(host.sent.at(-1))), [
-    "eagle-pinterest-import-status",
-    { pinId: "123456789", state: "done" },
-  ]);
+  await receive(importEvent({}));
+  assert.equal(imported.length, 0);
+  await receive(importEvent());
+  await receive(importEvent());
+  assert.equal(imported.length, 1);
+  assert.deepEqual(imported[0][1].folders, ["selected-folder"]);
+  assert.equal(host.sent.at(-1)[1].state, "done");
+  assert.equal(host.sent.at(-1)[1].itemId, "eagle-item");
+  assert.equal(
+    host.elements.importCounts.textContent,
+    "Imported 1 · Queued 0 · Failed 0",
+  );
+  await host.listeners["pinterestView:did-finish-load"]();
+  assert.equal(host.sent.at(-1)[1].history[0].state, "done");
+  assert.equal(
+    host.elements.importCounts.textContent,
+    "Imported 1 · Queued 0 · Failed 0",
+  );
+  host.listeners["clearHistoryButton:click"]();
+  assert.equal(host.sent.at(-1)[1].state, "idle");
+  assert.equal(
+    host.elements.importCounts.textContent,
+    "Imported 0 · Queued 0 · Failed 0",
+  );
+  await receive(importEvent());
+  assert.equal(imported.length, 2);
 });
 
-test("unconnected or failing import callbacks return Retry status without pretending an import occurred", async () => {
-  for (const handler of [
-    undefined,
-    async () => {
-      throw new Error("not available");
-    },
-  ]) {
-    const host = runPlugin({ handler });
-    host.ready();
-    await host.listeners["pinterestView:dom-ready"]();
-    await host.listeners["searchForm:submit"]({ preventDefault() {} });
-    await host.listeners["pinterestView:ipc-message"]({
-      channel: "eagle-pinterest-import",
-      args: [{ type: "eagle-pinterest-import", payload: pin }],
-    });
-    assert.equal(host.sent.at(-1)[1].state, "error");
-    assert.match(
-      host.elements.importStatus.textContent,
-      /not (connected|available)/i,
-    );
-  }
+test("host reports adapter errors and only an explicit user retry requeues a failed Pin", async () => {
+  const itemApi = {};
+  const host = runPlugin({ eagleApi: { item: itemApi } });
+  await readyForImport(host);
+  const receive = host.listeners["pinterestView:ipc-message"];
+  await receive(importEvent());
+  assert.equal(host.sent.at(-1)[1].state, "error");
+  assert.match(host.sent.at(-1)[1].error, /URL import is unavailable/);
+  assert.equal(
+    host.elements.importCounts.textContent,
+    "Imported 0 · Queued 0 · Failed 1",
+  );
+  // Eagle can become available later in the same plugin session.
+  // A normal duplicate request must keep the failure, rather than auto retry.
+  const queued = () => host.sent.filter(([, u]) => u.state === "queued").length;
+  assert.equal(queued(), 1);
+  await receive(importEvent());
+  assert.equal(queued(), 1);
+  itemApi.addFromURL = async () => "recovered-item";
+  await receive(importEvent(pin, true));
+  assert.equal(queued(), 2);
+  assert.equal(host.sent.at(-1)[1].state, "done");
+  assert.equal(
+    host.elements.importCounts.textContent,
+    "Imported 1 · Queued 0 · Failed 0",
+  );
 });
 
 test("missing webview support exposes an explicit external Pinterest fallback safely after readiness", async () => {
@@ -817,5 +850,96 @@ test("the Pin image is preferred over a high-resolution author avatar outside th
   assert.equal(
     host.sent[0].payload.imageUrl,
     "https://i.pinimg.com/736x/ab/cd/ef/large.jpg",
+  );
+});
+
+test("preload preserves an explicit retry action without exposing arbitrary envelope fields", () => {
+  const { sent, exposed } = runPreload();
+  exposed.eaglePinterestHost.send({
+    type: "eagle-pinterest-import",
+    payload: pin,
+    retry: true,
+    secret: "ignore",
+  });
+  assert.equal(sent[0][1].retry, true);
+  assert.equal(sent[0][1].secret, undefined);
+});
+
+test("new and recycled cards reuse cached status and clearing history restores import controls", () => {
+  const fixtures = [cardFixture()];
+  const host = runCards(fixtures);
+  host.events["eagle-pinterest-import-status"]({
+    detail: {
+      history: [
+        { key: "123456789", state: "done" },
+        { key: "987654321", state: "importing" },
+      ],
+    },
+  });
+  assert.equal(fixtures[0].buttons[0].textContent, "Imported");
+  const duplicate = cardFixture();
+  fixtures.push(duplicate);
+  host.mutate({ type: "childList", addedNodes: [duplicate.card] });
+  assert.equal(duplicate.buttons[0].textContent, "Imported");
+  fixtures[0].setHref("https://www.pinterest.com/pin/987654321/");
+  host.mutate({ type: "attributes", target: fixtures[0].link, addedNodes: [] });
+  assert.equal(fixtures[0].buttons[0].textContent, "Importing…");
+  host.events["eagle-pinterest-import-status"]({
+    detail: { key: "123456789", state: "idle" },
+  });
+  assert.equal(duplicate.buttons[0].textContent, "Download to Eagle");
+  assert.equal(duplicate.buttons[0].disabled, false);
+  assert.equal(fixtures[0].buttons[0].disabled, true);
+});
+
+test("failed cards expose the error and send an explicit retry on the next user click", () => {
+  const fixture = cardFixture();
+  const host = runCards([fixture]);
+  host.events["eagle-pinterest-import-status"]({
+    detail: { key: "123456789", state: "error", error: "Eagle unavailable" },
+  });
+  assert.equal(fixture.buttons[0].title, "Eagle unavailable");
+  fixture.buttons[0].listeners.click({
+    preventDefault() {},
+    stopImmediatePropagation() {},
+  });
+  assert.equal(host.sent[0].retry, true);
+});
+
+test("queued imports capture the selected destination at the user action and retain FIFO order", async () => {
+  let selection = "first-folder";
+  const jobs = [];
+  const host = runPlugin({
+    eagleApi: {
+      folder: { getSelected: async () => [{ id: selection }] },
+      item: {
+        addFromURL: (_url, options) =>
+          new Promise((resolve) => jobs.push({ options, resolve })),
+      },
+    },
+  });
+  await readyForImport(host);
+  const receive = host.listeners["pinterestView:ipc-message"];
+  const requests = [1, 2, 3, 4].map((id) =>
+    receive(
+      importEvent({ ...pin, pinUrl: `https://www.pinterest.com/pin/${id}/` }),
+    ),
+  );
+  await setImmediate();
+  assert.equal(jobs.length, 3);
+  assert.equal(
+    host.elements.importCounts.textContent,
+    "Imported 0 · Queued 4 · Failed 0",
+  );
+  selection = "second-folder";
+  jobs[0].resolve("item-1");
+  await setImmediate();
+  assert.equal(jobs.length, 4);
+  assert.deepEqual(jobs[3].options.folders, ["first-folder"]);
+  jobs.slice(1).forEach((job, i) => job.resolve(`item-${i + 2}`));
+  await Promise.all(requests);
+  assert.equal(
+    host.elements.importCounts.textContent,
+    "Imported 4 · Queued 0 · Failed 0",
   );
 });

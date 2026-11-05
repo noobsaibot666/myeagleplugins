@@ -10,13 +10,15 @@ contextBridge.exposeInMainWorld("eaglePinterestHost", {
   send(message) {
     if (!message || typeof message !== "object" || Array.isArray(message))
       return;
-    const envelope = /** @type {{type?: string, payload?: unknown}} */ (
-      message
-    );
+    const envelope =
+      /** @type {{type?: string, payload?: unknown, retry?: boolean}} */ (
+        message
+      );
     if (envelope.type !== "eagle-pinterest-import") return;
     ipcRenderer.sendToHost("eagle-pinterest-import", {
       type: "eagle-pinterest-import",
       payload: envelope.payload,
+      ...(envelope.retry === true ? { retry: true } : {}),
     });
   },
 });

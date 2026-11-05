@@ -25,7 +25,9 @@ body {
 .toolbar {
   z-index: 1;
   display: flex;
-  flex: 0 0 58px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  min-height: 58px;
   align-items: center;
   gap: 12px;
   padding: 10px 16px;
@@ -82,6 +84,11 @@ body {
 
 .import-status {
   min-width: 72px;
+}
+
+.import-counts {
+  color: #666;
+  white-space: nowrap;
 }
 
 .login-notice {

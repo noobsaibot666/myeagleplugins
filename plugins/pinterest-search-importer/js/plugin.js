@@ -8,17 +8,14 @@ const {
   getInjectedCardScript,
 } = require(fileURLToPath(new URL("js/pinterest-bridge.js", document.baseURI)));
 
-/**
- * Temporary host-only seam for the later import queue. The handler reports
- * actual progress through update; resolving alone never implies an import.
- * @typedef {{state: "queued"|"importing"|"done"|"error", error?: string}} ImportUpdate
- * @typedef {(pin: import("./pinterest-bridge").PinterestPin, update: (status: ImportUpdate) => void) => void|Promise<void>} ImportHandler
- * @typedef {HTMLElement & {src: string, loadURL: (url: string) => Promise<void>, getURL: () => string, executeJavaScript: (script: string) => Promise<unknown>, send: (channel: string, status: object) => void}} PinterestWebview
- */
-const host =
-  /** @type {Window & {eaglePinterestImportHandler?: ImportHandler}} */ (
-    window
-  );
+const { importPin, getCurrentTargetFolderIds } = require(
+  fileURLToPath(new URL("js/eagle-importer.js", document.baseURI)),
+);
+const { createImportQueue } = require(
+  fileURLToPath(new URL("js/import-queue.js", document.baseURI)),
+);
+
+/** @typedef {HTMLElement & {src: string, loadURL: (url: string) => Promise<void>, getURL: () => string, executeJavaScript: (script: string) => Promise<unknown>, send: (channel: string, status: object) => void}} PinterestWebview */
 const searchForm = document.getElementById("searchForm");
 const searchInput = /** @type {HTMLInputElement} */ (
   document.getElementById("searchInput")
@@ -27,6 +24,10 @@ const searchButton = /** @type {HTMLButtonElement} */ (
   document.getElementById("searchButton")
 );
 const importStatus = document.getElementById("importStatus");
+const importCounts = document.getElementById("importCounts");
+const clearHistoryButton = /** @type {HTMLButtonElement} */ (
+  document.getElementById("clearHistoryButton")
+);
 const settingsButton = /** @type {HTMLButtonElement} */ (
   document.getElementById("settingsButton")
 );
@@ -37,6 +38,46 @@ const pinterestView = /** @type {PinterestWebview} */ (
 );
 let pluginReady = false;
 let guestReady = false;
+
+const importQueue = createImportQueue({
+  concurrency: 3,
+  importer: async (pin) => {
+    const job =
+      /** @type {import("./pinterest-bridge").PinterestPin & {targetFolderIds: Promise<string[]>}} */ (
+        pin
+      );
+    return importPin(eagle, job, { folderIds: await job.targetFolderIds });
+  },
+  onUpdate: (status) => {
+    updateCounts();
+    sendStatus(status);
+    if (status.error) setStatus(status.error);
+  },
+});
+
+function updateCounts() {
+  const { imported, queued, failed } = importQueue.getCounts();
+  if (importCounts) {
+    importCounts.textContent = `Imported ${imported} · Queued ${queued} · Failed ${failed}`;
+  }
+}
+
+/** @param {object} status */
+function sendStatus(status) {
+  if (!pluginReady || !guestReady || !isPinterestPage()) return;
+  try {
+    pinterestView.send("eagle-pinterest-import-status", status);
+  } catch (_error) {
+    showFallback();
+  }
+}
+
+clearHistoryButton?.addEventListener("click", () => {
+  if (!pluginReady) return;
+  importQueue.clearHistory();
+  updateCounts();
+  setStatus("Session history cleared.");
+});
 
 function setStatus(text) {
   if (importStatus) importStatus.textContent = text;
@@ -110,6 +151,7 @@ pinterestView?.addEventListener("did-finish-load", async () => {
       getInjectedCardScript(),
     );
     if (available !== true) return showFallback();
+    sendStatus({ history: importQueue.getUpdates() });
     if (openPinterestButton) openPinterestButton.hidden = true;
     setStatus("Choose a Pin to send to Eagle.");
   } catch (_error) {
@@ -131,43 +173,19 @@ pinterestView?.addEventListener("ipc-message", async (event) => {
     event
   );
   if (ipc.channel !== "eagle-pinterest-import") return;
-  const envelope = /** @type {{type?: string, payload?: unknown}} */ (
-    ipc.args?.[0]
-  );
+  const envelope =
+    /** @type {{type?: string, payload?: unknown, retry?: boolean}} */ (
+      ipc.args?.[0]
+    );
   if (!envelope || envelope.type !== "eagle-pinterest-import") return;
   const pin = validateImportMessage(envelope.payload);
   if (!pin) return;
-  /** @param {ImportUpdate} status */
-  const update = (status) => {
-    try {
-      pinterestView.send("eagle-pinterest-import-status", {
-        pinId: pin.pinId,
-        ...status,
-      });
-    } catch (_error) {
-      showFallback();
-    }
-    if (status.error) setStatus(status.error);
-  };
-  update({ state: "importing" });
-  if (typeof host.eaglePinterestImportHandler !== "function") {
-    update({
-      state: "error",
-      error: "The Eagle importer is not connected yet.",
-    });
-    return;
-  }
-  try {
-    await host.eaglePinterestImportHandler(pin, update);
-  } catch (error) {
-    update({
-      state: "error",
-      error:
-        error instanceof Error
-          ? error.message
-          : "The importer is not available.",
-    });
-  }
+  // Capture the destination now without awaiting it, so queued jobs keep
+  // click order and cannot drift into a folder selected later.
+  const job = { ...pin, targetFolderIds: getCurrentTargetFolderIds(eagle) };
+  await (envelope.retry === true
+    ? importQueue.retry(job)
+    : importQueue.enqueue(job));
 });
 
 pinterestView?.addEventListener("did-fail-load", (event) => {
@@ -178,6 +196,8 @@ pinterestView?.addEventListener("did-fail-load", (event) => {
 });
 
 if (searchButton) searchButton.disabled = true;
+if (clearHistoryButton) clearHistoryButton.disabled = true;
+updateCounts();
 if (settingsButton) {
   settingsButton.disabled = true;
   settingsButton.title = "Settings will be available in a future update.";
@@ -197,6 +217,7 @@ if (typeof eagle !== "undefined") {
     pinterestView?.setAttribute("src", "about:blank");
     pinterestView.src = "about:blank";
     pluginReady = true;
+    if (clearHistoryButton) clearHistoryButton.disabled = false;
     if (!supportsWebview()) return showFallback();
     setStatus("Initializing Pinterest…");
   });

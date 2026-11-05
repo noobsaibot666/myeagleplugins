@@ -79,6 +79,27 @@ function decoratePinterestCards() {
   if (page.__eaglePinterestDecorated) return true;
   page.__eaglePinterestDecorated = true;
 
+  /** @type {Map<string, {state: string, error?: string}>} */
+  const statuses = new Map();
+
+  /** @param {HTMLButtonElement} button */
+  function renderStatus(button) {
+    const status = statuses.get(button.getAttribute("data-eagle-pin-id"));
+    const done = status?.state === "done";
+    const busy = status?.state === "importing" || status?.state === "queued";
+    const failed = status?.state === "error";
+    button.disabled = done || busy;
+    button.textContent = done
+      ? "Imported"
+      : busy
+        ? "Importing…"
+        : failed
+          ? "Retry"
+          : "Download to Eagle";
+    button.className = `pin-import-button${done ? " imported" : busy ? " importing" : failed ? " failed" : ""}`;
+    button.title = status?.error || "";
+  }
+
   const style = document.createElement("style");
   style.textContent = `
     .pin-import-button { position:absolute; bottom:12px; left:12px; z-index:10;
@@ -207,10 +228,11 @@ function decoratePinterestCards() {
     if (existing) {
       const previousPinId = existing.getAttribute("data-eagle-pin-id");
       existing.setAttribute("data-eagle-pin-id", current.pin.pinId);
-      if (previousPinId !== current.pin.pinId) {
-        existing.textContent = "Download to Eagle";
-        existing.className = "pin-import-button";
-        existing.disabled = false;
+      if (
+        previousPinId !== current.pin.pinId ||
+        statuses.has(current.pin.pinId)
+      ) {
+        renderStatus(existing);
       }
       return;
     }
@@ -230,6 +252,7 @@ function decoratePinterestCards() {
     button.textContent = "Download to Eagle";
     button.setAttribute("data-eagle-pin-id", pin.pinId);
     button.setAttribute("data-eagle-import-control", "true");
+    renderStatus(button);
     if (window.getComputedStyle(card).position === "static") {
       /** @type {HTMLElement} */ (card).style.position = "relative";
     }
@@ -243,6 +266,8 @@ function decoratePinterestCards() {
         button.className = "pin-import-button failed";
         return;
       }
+      const retry = statuses.get(current.pin.pinId)?.state === "error";
+      button.setAttribute("data-eagle-pin-id", current.pin.pinId);
       button.textContent = "Importing…";
       button.className = "pin-import-button importing";
       button.disabled = true;
@@ -250,6 +275,7 @@ function decoratePinterestCards() {
         page.eaglePinterestHost.send({
           type: "eagle-pinterest-import",
           payload: current.pin,
+          retry,
         });
       } catch (_error) {
         button.textContent = "Retry";
@@ -277,18 +303,28 @@ function decoratePinterestCards() {
   }
 
   page.addEventListener("eagle-pinterest-import-status", (event) => {
-    const status = /** @type {CustomEvent} */ (event).detail;
-    if (!status || typeof status.pinId !== "string") return;
+    const message = /** @type {CustomEvent} */ (event).detail;
+    if (!message || typeof message !== "object") return;
+    const history = Array.isArray(message.history) ? message.history : null;
+    if (history) statuses.clear();
+    for (const status of history || [message]) {
+      if (!status || typeof status !== "object") continue;
+      const key = status.key || status.pinId;
+      if (typeof key !== "string") continue;
+      if (status.state === "idle") statuses.delete(key);
+      else if (
+        ["queued", "importing", "done", "error"].includes(status.state)
+      ) {
+        statuses.set(key, status);
+      }
+    }
     for (const button of Array.from(
       document.querySelectorAll("button[data-eagle-pin-id]"),
     )) {
-      if (button.getAttribute("data-eagle-pin-id") !== status.pinId) continue;
-      const control = /** @type {HTMLButtonElement} */ (button);
-      const done = status.state === "done";
-      const busy = status.state === "importing" || status.state === "queued";
-      control.disabled = done || busy;
-      control.textContent = done ? "Imported" : busy ? "Importing…" : "Retry";
-      control.className = `pin-import-button ${done ? "imported" : busy ? "importing" : "failed"}`;
+      const key = button.getAttribute("data-eagle-pin-id");
+      if (history || key === (message.key || message.pinId)) {
+        renderStatus(/** @type {HTMLButtonElement} */ (button));
+      }
     }
   });
 
