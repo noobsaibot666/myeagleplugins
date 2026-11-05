@@ -403,6 +403,20 @@ test("a nested pinWrapper and pin card receive one control for the rendered Pin"
   assert.equal(fixture.buttons.length + fixture.wrapperButtons.length, 1);
 });
 
+test("changing an image in a grid-item wrapper does not add a second control", () => {
+  const fixture = cardFixture({ gridItem: true });
+  const host = runCards([fixture]);
+  const countButtons = () =>
+    fixture.buttons.length +
+    fixture.wrapperButtons.length +
+    fixture.gridButtons.length;
+  assert.equal(countButtons(), 1);
+  fixture.image.attributes.src =
+    "https://i.pinimg.com/736x/ab/cd/ef/changed.jpg";
+  host.mutate({ type: "attributes", target: fixture.image, addedNodes: [] });
+  assert.equal(countButtons(), 1);
+});
+
 test("a click resolves the current Pin link and image after the card DOM changes", () => {
   const fixture = cardFixture();
   const host = runCards([fixture]);
@@ -432,11 +446,13 @@ function cardFixture({
   imageInsideLink = true,
   href = pin.pinUrl,
   nestedWrapper = false,
+  gridItem = false,
   extraHrefs = [],
   extraImages = [],
 } = {}) {
   const buttons = [];
   const wrapperButtons = [];
+  const gridButtons = [];
   const image = {
     alt: "Interior design",
     naturalWidth: 236,
@@ -450,7 +466,11 @@ function cardFixture({
       return this.attributes[key] || null;
     },
     closest(selector) {
-      if (selector.includes('data-test-id="pin"')) return card;
+      if (selector.includes("data-grid-item") && gridItem) return grid;
+      if (selector.includes('data-test-id="pinWrapper"') && gridItem)
+        return card;
+      if (selector.includes('data-test-id="pin"'))
+        return gridItem ? null : card;
       return imageInsideLink && selector === "a[href]" ? link : null;
     },
     querySelectorAll() {
@@ -464,13 +484,18 @@ function cardFixture({
   const card = {
     style: {},
     nodeType: 1,
-    matches() {
-      return false;
+    matches(selector) {
+      return gridItem && selector.includes("data-grid-item");
     },
     closest(selector) {
-      return selector.includes('data-test-id="pin"') ? this : null;
+      if (selector.includes('data-test-id="pin"'))
+        return gridItem ? null : this;
+      if (selector.includes('data-test-id="pinWrapper"')) return this;
+      if (selector.includes("data-grid-item")) return gridItem ? grid : null;
+      return null;
     },
     querySelector(selector) {
+      if (selector.includes('data-test-id="pin"')) return null;
       return selector === "button[data-eagle-pin-id]"
         ? buttons[0] || null
         : null;
@@ -501,6 +526,29 @@ function cardFixture({
     },
     appendChild(button) {
       buttons.push(button);
+    },
+  };
+  const grid = {
+    style: {},
+    nodeType: 1,
+    matches(selector) {
+      return selector.includes("data-grid-item");
+    },
+    closest(selector) {
+      return selector.includes("data-grid-item") ? this : null;
+    },
+    querySelector(selector) {
+      return selector === "button[data-eagle-pin-id]"
+        ? gridButtons[0] || null
+        : null;
+    },
+    querySelectorAll(selector) {
+      if (selector === "a[href]") return [link];
+      if (selector === "img") return [image];
+      return [];
+    },
+    appendChild(button) {
+      gridButtons.push(button);
     },
   };
   const wrapper = {
@@ -538,10 +586,16 @@ function cardFixture({
       return selector === "a[href]"
         ? this
         : selector.includes('data-test-id="pin"')
-          ? card
-          : selector.includes('data-test-id="pinWrapper"') && nestedWrapper
-            ? wrapper
-            : null;
+          ? gridItem
+            ? null
+            : card
+          : selector.includes('data-test-id="pinWrapper"') && gridItem
+            ? card
+            : selector.includes("data-grid-item") && gridItem
+              ? grid
+              : selector.includes('data-test-id="pinWrapper"') && nestedWrapper
+                ? wrapper
+                : null;
     },
     querySelectorAll(selector) {
       return selector === "img" && imageInsideLink ? [image] : [];
@@ -555,6 +609,7 @@ function cardFixture({
     image,
     buttons,
     wrapperButtons,
+    gridButtons,
     setHref(value) {
       href = value;
     },

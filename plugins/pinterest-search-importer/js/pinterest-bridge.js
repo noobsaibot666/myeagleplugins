@@ -139,14 +139,25 @@ function decoratePinterestCards() {
     });
   }
 
-  /** @param {Element} link */
-  function getCard(link) {
+  /** @param {Element} node @returns {Element|null} */
+  function getOwningCard(node) {
     return (
-      link.closest('[data-test-id="pin"]') ||
-      link.closest("[data-grid-item]") ||
-      link.closest('[data-test-id="pinWrapper"]') ||
-      link
+      node.closest('[data-test-id="pin"]') ||
+      node.closest('[data-test-id="pinWrapper"]') ||
+      node.closest("[data-grid-item]") ||
+      (node.matches?.("a[href]") ? node : null)
     );
+  }
+
+  /** @param {Element} node @returns {Element|null} */
+  function getCanonicalCard(node) {
+    if (!node.matches?.("a[href]")) {
+      for (const link of Array.from(node.querySelectorAll("a[href]"))) {
+        const card = getOwningCard(link);
+        if (card) return card;
+      }
+    }
+    return getOwningCard(node);
   }
 
   /** @param {Element} card @returns {Element|null} */
@@ -252,15 +263,16 @@ function decoratePinterestCards() {
   /** @param {Element} root */
   function inspect(root) {
     const cards = new Set();
-    const ancestorCard = root.closest('[data-test-id="pin"], [data-grid-item]');
-    if (ancestorCard) cards.add(ancestorCard);
-    const ancestorWrapper = root.closest('[data-test-id="pinWrapper"]');
-    const nestedPin = root.querySelector('[data-test-id="pin"]');
-    if (ancestorWrapper && !nestedPin) cards.add(ancestorWrapper);
-    if (root.matches?.('[data-test-id="pin"], [data-grid-item]'))
-      cards.add(root);
-    for (const link of Array.from(root.querySelectorAll("a[href]")))
-      cards.add(getCard(link));
+    const cardSelector =
+      '[data-test-id="pin"], [data-test-id="pinWrapper"], [data-grid-item]';
+    if (root.matches?.(cardSelector) || root.closest(cardSelector)) {
+      const card = getCanonicalCard(root);
+      if (card) cards.add(card);
+    }
+    for (const link of Array.from(root.querySelectorAll("a[href]"))) {
+      const card = getOwningCard(link);
+      if (card) cards.add(card);
+    }
     for (const card of cards) decorateCard(card);
   }
 
