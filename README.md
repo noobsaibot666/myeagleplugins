@@ -2,6 +2,14 @@
 
 Local dev environment for building [Eagle](https://eagle.cool) plugins. Docs: https://developer.eagle.cool/plugin-api
 
+## Plugins
+
+- [Pinterest Search Importer v2](plugins/pinterest-search-importer/README.md) —
+  keyword search in embedded Pinterest with an in-image **Download to Eagle**
+  action, selected-folder imports, metadata/tags, and session duplicate protection.
+  Compatible replacement implementation; Image search is preview-only. Live
+  Eagle/Pinterest UI validation is required before publishing.
+
 ## Layout
 
 ```
@@ -77,3 +85,20 @@ node ~/.claude/skills/eagle-skill/scripts/eagle-api-cli.js call get_app_info
 npm run lint     # eslint plugins/
 npm run format    # prettier --write plugins/
 ```
+
+## Pinterest Search Importer validation and packaging
+
+From this repository root, with development dependencies installed (`npm ci`):
+
+```bash
+npm --prefix plugins/pinterest-search-importer test
+npm run lint
+npx tsc --noEmit -p plugins/pinterest-search-importer
+git diff --check
+python3 scripts/package-pinterest-search-importer.py
+```
+
+The Python 3.9+ packager creates a deterministic, validated runtime-only zip at
+`dist/pinterest-search-importer-2.0.0.zip`; generated archives are not committed.
+See the [plugin README](plugins/pinterest-search-importer/README.md#automated-verification-and-release-packaging)
+for the exact automated results, package allowlist, and required live release checks.
