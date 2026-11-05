@@ -11,13 +11,20 @@ const {
   validateImportMessage,
   normalizeImageUrl,
 } = require("./pinterest-bridge");
+const {
+  normalizeSettings,
+  selectImageVariant,
+  buildImportTags,
+} = require("./settings");
 
-/** @typedef {Partial<Pick<EagleItemModule, "addFromURL" | "addFromPath">>} ImportItemApi */
+/** @typedef {Partial<Pick<EagleItemModule, "addFromURL" | "addFromPath" | "open">>} ImportItemApi */
 /** @typedef {{folder?: Partial<Pick<EagleFolderModule, "getSelected">>, item?: ImportItemApi}} ImportApi */
 /**
  * @typedef {object} ImportOptions
  * @property {string[]} [folderIds] A captured selection; [] explicitly targets the library root.
  * @property {string[]} [tags] Additional tags, merged with any pin.tags.
+ * @property {Partial<import("./settings").ImportSettings>} [settings] Captured preferences for this import.
+ * @property {string} [searchTerm] Search that produced the Pin, never persisted.
  * @property {boolean} [allowLocalFallback] Opt in to a temporary-file download after URL import fails.
  * @property {(url: string, destination: string) => Promise<void>} [download] Writes only to the supplied temporary path.
  * @property {(milliseconds: number) => Promise<void>} [sleep] Retry delay dependency.
@@ -154,8 +161,9 @@ async function importPin(eagleApi, pin, options = {}) {
       "A valid Pinterest image Pin is required",
     );
   }
-  const { pinId, pinUrl, imageUrl, title, description, author, isVideo } =
-    normalized;
+  const { pinId, pinUrl, title, description, author, isVideo } = normalized;
+  const settings = normalizeSettings(options.settings);
+  const imageUrl = selectImageVariant(normalized, settings.imageVariant);
   if (isVideo) {
     throw new EagleImportError(
       "UNSUPPORTED_PIN",
@@ -181,10 +189,26 @@ async function importPin(eagleApi, pin, options = {}) {
     tags: uniqueStrings([
       ...uniqueStrings(pinTags),
       ...uniqueStrings(options.tags),
+      ...(options.settings
+        ? buildImportTags(settings, options.searchTerm)
+        : []),
     ]),
     folders: [...folderIds],
   };
   const itemApi = eagleApi?.item;
+  /** Opening is a best-effort follow-up; an imported item must stay successful.
+   * @param {string} itemId
+   */
+  async function finishImport(itemId) {
+    if (settings.openPinAfterImport && typeof itemApi?.open === "function") {
+      try {
+        await itemApi.open(itemId);
+      } catch (_error) {
+        // Do not offer a duplicate import when Eagle cannot open the item.
+      }
+    }
+    return { itemId, folderIds };
+  }
   let urlError = new EagleImportError(
     "URL_IMPORT_UNAVAILABLE",
     pinId,
@@ -196,7 +220,7 @@ async function importPin(eagleApi, pin, options = {}) {
         const itemId = requireItemId(
           await itemApi.addFromURL(imageUrl, importOptions),
         );
-        return { itemId, folderIds };
+        return await finishImport(itemId);
       } catch (cause) {
         urlError = new EagleImportError(
           "URL_IMPORT_FAILED",
@@ -228,7 +252,7 @@ async function importPin(eagleApi, pin, options = {}) {
     const itemId = requireItemId(
       await itemApi.addFromPath(temporaryFile, importOptions),
     );
-    return { itemId, folderIds };
+    return await finishImport(itemId);
   } catch (cause) {
     throw new EagleImportError(
       "LOCAL_IMPORT_FAILED",

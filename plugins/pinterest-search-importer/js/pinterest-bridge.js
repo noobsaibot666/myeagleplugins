@@ -1,7 +1,8 @@
 /* global URL */
 "use strict";
 
-/** @typedef {{pinId: string, pinUrl: string, imageUrl: string, title: string, description: string, author: string, isVideo: boolean}} PinterestPin */
+/** @typedef {Partial<Record<"1200x"|"original"|"600x", string>>} ImageVariants */
+/** @typedef {{pinId: string, pinUrl: string, imageUrl: string, imageVariants?: ImageVariants, title: string, description: string, author: string, isVideo: boolean}} PinterestPin */
 
 /** @param {unknown} value */
 function parseHttpUrl(value) {
@@ -58,10 +59,23 @@ function validateImportMessage(message) {
   if (!pinUrl || !imageUrl) return null;
   const pinId = pinUrl.split("/")[4];
   if (input.pinId !== undefined && input.pinId !== pinId) return null;
+  /** @type {ImageVariants} */
+  const imageVariants = {};
+  if (
+    input.imageVariants &&
+    typeof input.imageVariants === "object" &&
+    !Array.isArray(input.imageVariants)
+  ) {
+    for (const variant of ["1200x", "original", "600x"]) {
+      const url = normalizeImageUrl(input.imageVariants[variant]);
+      if (url) imageVariants[variant] = url;
+    }
+  }
   return {
     pinId,
     pinUrl,
     imageUrl,
+    ...(Object.keys(imageVariants).length ? { imageVariants } : {}),
     title: metadataText(input.title),
     description: metadataText(input.description),
     author: metadataText(input.author),
@@ -137,7 +151,20 @@ function decoratePinterestCards() {
         add(url, Number.isFinite(size) ? size : 0);
       }
     }
-    return candidates.sort((a, b) => b.size - a.size)[0];
+    const best = candidates.sort((a, b) => b.size - a.size)[0];
+    if (!best) return null;
+    /** @type {ImageVariants} */
+    const imageVariants = {};
+    for (const candidate of candidates) {
+      if (candidate.image !== best.image) continue;
+      const variant = /^https?:\/\/[^/]+\/(1200x|600x|originals)\//.exec(
+        candidate.url,
+      )?.[1];
+      if (variant)
+        imageVariants[variant === "originals" ? "original" : variant] =
+          candidate.url;
+    }
+    return { ...best, imageVariants };
   }
 
   /** @param {Element} card @param {string} pinUrl @param {Element} link */
@@ -147,6 +174,7 @@ function decoratePinterestCards() {
     return validateImportMessage({
       pinUrl,
       imageUrl: best.url,
+      imageVariants: best.imageVariants,
       title:
         best.image.alt ||
         card.querySelector('[data-test-id="pinTitle"]')?.textContent ||

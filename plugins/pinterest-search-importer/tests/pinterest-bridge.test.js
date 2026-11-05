@@ -102,6 +102,21 @@ test("messages missing pinUrl or imageUrl are rejected", () => {
   assert.equal(validateImportMessage({ pinUrl: pin.pinUrl }), null);
 });
 
+test("bridge accepts only supported variants with validated Pinterest image URLs", () => {
+  const input = {
+    ...pin,
+    imageVariants: {
+      "1200x": "https://i.pinimg.com/1200x/large.jpg",
+      original: "https://user:secret@i.pinimg.com/originals/full.jpg",
+      "600x": "data:image/png;base64,abc",
+      password: "secret",
+    },
+  };
+  assert.deepEqual(validateImportMessage(input).imageVariants, {
+    "1200x": input.imageVariants["1200x"],
+  });
+});
+
 test("messages reject non-objects, missing Pin IDs, mismatched IDs, and invalid URLs", () => {
   for (const message of [
     null,
@@ -210,7 +225,11 @@ test("injected script is self-contained and returns false when messaging is unav
   );
 });
 
-function runPlugin({ messaging = true, eagleApi = {} } = {}) {
+function runPlugin({
+  messaging = true,
+  eagleApi = {},
+  storedSettings = null,
+} = {}) {
   const elements = {};
   const loaded = [];
   const sent = [];
@@ -227,6 +246,22 @@ function runPlugin({ messaging = true, eagleApi = {} } = {}) {
     "pinterestView",
     "openPinterestButton",
     "loginNotice",
+    "settingsPanel",
+    "imageVariant",
+    "addPinterestTag",
+    "addSearchTag",
+    "openPinAfterImport",
+    "resetSettingsButton",
+    "keywordTab",
+    "imageTab",
+    "imageSearchPanel",
+    "eagleImageButton",
+    "clipboardImageButton",
+    "imageDropZone",
+    "imageFileInput",
+    "clearImageButton",
+    "imagePreview",
+    "imageInputStatus",
   ]) {
     elements[id] = {
       value: "  interior design ",
@@ -236,6 +271,9 @@ function runPlugin({ messaging = true, eagleApi = {} } = {}) {
       attributes: {},
       setAttribute(key, value) {
         this.attributes[key] = value;
+      },
+      removeAttribute(key) {
+        delete this.attributes[key];
       },
       addEventListener(name, callback) {
         listeners[`${id}:${name}`] = callback;
@@ -257,6 +295,7 @@ function runPlugin({ messaging = true, eagleApi = {} } = {}) {
   }
   let create;
   const page = {};
+  const writes = [];
   const pluginSource = fs.readFileSync(
     path.join(__dirname, "../js/plugin.js"),
     "utf8",
@@ -271,6 +310,10 @@ function runPlugin({ messaging = true, eagleApi = {} } = {}) {
       getElementById: (id) => elements[id],
     },
     window: page,
+    localStorage: {
+      getItem: () => storedSettings,
+      setItem: (key, value) => writes.push({ key, value }),
+    },
     eagle: {
       ...eagleApi,
       onPluginCreate(callback) {
@@ -290,6 +333,7 @@ function runPlugin({ messaging = true, eagleApi = {} } = {}) {
     external,
     listeners,
     page,
+    writes,
     ready: () => create({ path: path.join(__dirname, "..") }),
   };
 }
@@ -314,6 +358,156 @@ test("host waits for Eagle readiness, resolves an absolute preload, and navigate
   assert.equal(host.loaded.at(-1), buildSearchUrl("interior design"));
   await host.listeners["pinterestView:did-finish-load"]();
   assert.equal(host.elements.openPinterestButton.hidden, true);
+});
+
+test("host loads, changes, resets preferences and forwards them to the importer", async () => {
+  const imported = [];
+  const opened = [];
+  const host = runPlugin({
+    storedSettings: JSON.stringify({
+      imageVariant: "original",
+      addPinterestTag: false,
+      addSearchTag: true,
+      openPinAfterImport: true,
+    }),
+    eagleApi: {
+      item: {
+        addFromURL: async (...args) => {
+          imported.push(args);
+          return "item-settings";
+        },
+        open: async (id) => {
+          opened.push(id);
+        },
+      },
+    },
+  });
+  await readyForImport(host);
+  assert.equal(host.elements.imageVariant.value, "original");
+  assert.equal(host.elements.addPinterestTag.checked, false);
+  host.listeners["settingsButton:click"]();
+  assert.equal(host.elements.settingsPanel.hidden, false);
+  await host.listeners["pinterestView:ipc-message"](
+    importEvent({
+      ...pin,
+      imageVariants: { original: "https://i.pinimg.com/originals/full.jpg" },
+    }),
+  );
+  assert.equal(imported[0][0], "https://i.pinimg.com/originals/full.jpg");
+  assert.deepEqual(imported[0][1].tags, ["interior design"]);
+  assert.deepEqual(opened, ["item-settings"]);
+  host.elements.imageVariant.value = "600x";
+  host.listeners["imageVariant:change"]();
+  assert.equal(JSON.parse(host.writes.at(-1).value).imageVariant, "600x");
+  host.listeners["resetSettingsButton:click"]();
+  assert.deepEqual(
+    JSON.parse(host.writes.at(-1).value),
+    require("../js/settings").DEFAULT_SETTINGS,
+  );
+});
+
+test("image search accepts selected, clipboard, and dropped images without persistence or navigation", async () => {
+  const host = runPlugin({
+    eagleApi: {
+      item: {
+        getSelected: async () => [
+          {
+            ext: "png",
+            fileURL: "file:///selected.png",
+            name: "Selected image",
+          },
+        ],
+      },
+      clipboard: {
+        readImage: () => ({
+          isEmpty: () => false,
+          toDataURL: () => "data:image/png;base64,abc",
+        }),
+      },
+    },
+  });
+  host.ready();
+  host.listeners["imageTab:click"]();
+  assert.equal(host.elements.imageSearchPanel.hidden, false);
+  assert.equal(host.elements.pinterestView.hidden, true);
+  await host.listeners["eagleImageButton:click"]();
+  assert.equal(host.elements.imagePreview.src, "file:///selected.png");
+  await host.listeners["clipboardImageButton:click"]();
+  assert.equal(host.elements.imagePreview.src, "data:image/png;base64,abc");
+  host.listeners["imageDropZone:drop"]({
+    preventDefault() {},
+    dataTransfer: {
+      files: [
+        { type: "image/png", path: "/tmp/dropped.png", name: "dropped.png" },
+      ],
+    },
+  });
+  assert.equal(host.elements.imagePreview.src, "file:///tmp/dropped.png");
+  assert.equal(host.loaded.length, 0);
+  assert.equal(host.writes.length, 0);
+  host.listeners["clearImageButton:click"]();
+  assert.equal(host.elements.imagePreview.hidden, true);
+  host.listeners["keywordTab:click"]();
+  assert.equal(host.elements.pinterestView.hidden, false);
+});
+
+test("image search reports empty inputs and rejects non-image drops", async () => {
+  const host = runPlugin({
+    eagleApi: {
+      item: { getSelected: async () => [] },
+      clipboard: { readImage: () => ({ isEmpty: () => true }) },
+    },
+  });
+  host.ready();
+  await host.listeners["eagleImageButton:click"]();
+  assert.match(host.elements.imageInputStatus.textContent, /Select an image/);
+  await host.listeners["clipboardImageButton:click"]();
+  assert.match(host.elements.imageInputStatus.textContent, /no image/i);
+  host.listeners["imageDropZone:drop"]({
+    preventDefault() {},
+    dataTransfer: { files: [{ type: "text/plain", name: "note.txt" }] },
+  });
+  assert.match(host.elements.imageInputStatus.textContent, /Choose an image/);
+});
+
+test("local image previews release object URLs on replacement and clearing", () => {
+  const host = runPlugin();
+  const revoked = [];
+  let count = 0;
+  host.page.URL = {
+    createObjectURL: () => `blob:preview-${++count}`,
+    revokeObjectURL: (url) => revoked.push(url),
+  };
+  host.elements.imageFileInput.files = [
+    { type: "image/png", name: "local.png" },
+  ];
+  host.listeners["imageFileInput:change"]();
+  assert.equal(host.elements.imagePreview.src, "blob:preview-1");
+  host.listeners["imageFileInput:change"]();
+  assert.deepEqual(revoked, ["blob:preview-1"]);
+  host.listeners["clearImageButton:click"]();
+  assert.deepEqual(revoked, ["blob:preview-1", "blob:preview-2"]);
+  assert.equal(host.writes.length, 0);
+});
+
+test("a successful retry clears the previous toolbar error", async () => {
+  let failing = true;
+  const host = runPlugin({
+    eagleApi: {
+      item: {
+        addFromURL: async () => {
+          if (failing) throw new Error("blocked");
+          return "retried-item";
+        },
+      },
+    },
+  });
+  await readyForImport(host);
+  await host.listeners["pinterestView:ipc-message"](importEvent());
+  assert.match(host.elements.importStatus.textContent, /failed/);
+  failing = false;
+  await host.listeners["pinterestView:ipc-message"](importEvent(pin, true));
+  assert.equal(host.elements.importStatus.textContent, "Imported to Eagle.");
 });
 
 function importEvent(payload = pin, retry = false) {
@@ -794,6 +988,32 @@ test("srcset beats a smaller src and newly rendered cards are decorated without 
   );
 });
 
+test("card bridge supplies only observed variants from the selected Pin image", () => {
+  const fixture = cardFixture({
+    extraImages: [
+      {
+        naturalWidth: 6000,
+        getAttribute: () => "https://i.pinimg.com/1200x/avatar.jpg",
+      },
+    ],
+  });
+  fixture.image.attributes.srcset =
+    "https://i.pinimg.com/600x/small.jpg 600w, https://i.pinimg.com/1200x/large.jpg 1200w";
+  const host = runCards([fixture]);
+  fixture.buttons[0].listeners.click({
+    preventDefault() {},
+    stopImmediatePropagation() {},
+  });
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(host.sent[0].payload.imageVariants)),
+    {
+      "600x": "https://i.pinimg.com/600x/small.jpg",
+      "1200x": "https://i.pinimg.com/1200x/large.jpg",
+      original: fixture.image.attributes["data-src"],
+    },
+  );
+});
+
 test("malformed links cannot stop other cards from being decorated", () => {
   const valid = cardFixture();
   assert.doesNotThrow(() =>
@@ -913,8 +1133,8 @@ test("queued imports capture the selected destination at the user action and ret
     eagleApi: {
       folder: { getSelected: async () => [{ id: selection }] },
       item: {
-        addFromURL: (_url, options) =>
-          new Promise((resolve) => jobs.push({ options, resolve })),
+        addFromURL: (url, options) =>
+          new Promise((resolve) => jobs.push({ url, options, resolve })),
       },
     },
   });
@@ -922,7 +1142,14 @@ test("queued imports capture the selected destination at the user action and ret
   const receive = host.listeners["pinterestView:ipc-message"];
   const requests = [1, 2, 3, 4].map((id) =>
     receive(
-      importEvent({ ...pin, pinUrl: `https://www.pinterest.com/pin/${id}/` }),
+      importEvent({
+        ...pin,
+        pinUrl: `https://www.pinterest.com/pin/${id}/`,
+        imageVariants: {
+          "1200x": "https://i.pinimg.com/1200x/large.jpg",
+          "600x": "https://i.pinimg.com/600x/small.jpg",
+        },
+      }),
     ),
   );
   await setImmediate();
@@ -932,10 +1159,16 @@ test("queued imports capture the selected destination at the user action and ret
     "Imported 0 · Queued 4 · Failed 0",
   );
   selection = "second-folder";
+  host.elements.imageVariant.value = "600x";
+  host.elements.addPinterestTag.checked = false;
+  host.listeners["imageVariant:change"]();
+  host.elements.searchInput.value = "another query";
   jobs[0].resolve("item-1");
   await setImmediate();
   assert.equal(jobs.length, 4);
   assert.deepEqual(jobs[3].options.folders, ["first-folder"]);
+  assert.deepEqual(jobs[3].options.tags, ["Pinterest"]);
+  assert.equal(jobs[3].url, "https://i.pinimg.com/1200x/large.jpg");
   jobs.slice(1).forEach((job, i) => job.resolve(`item-${i + 2}`));
   await Promise.all(requests);
   assert.equal(

@@ -43,6 +43,75 @@ function fakeEagle() {
 
 const noDelay = async () => {};
 
+test("import settings choose image variants, tags, and open the successful Eagle item", async () => {
+  const eagle = fakeEagle();
+  const opened = [];
+  eagle.item.open = async (id) => {
+    opened.push(id);
+    return true;
+  };
+  const imageVariants = { "600x": "https://i.pinimg.com/600x/example.jpg" };
+  await importPin(
+    eagle,
+    { ...pin, tags: [], imageVariants },
+    {
+      settings: {
+        imageVariant: "600x",
+        addPinterestTag: false,
+        addSearchTag: true,
+        openPinAfterImport: true,
+      },
+      searchTerm: "  reading corner  ",
+    },
+  );
+  assert.equal(eagle.calls[0].url, imageVariants["600x"]);
+  assert.deepEqual(eagle.calls[0].options.tags, ["reading corner"]);
+  assert.deepEqual(opened, ["item-1"]);
+});
+
+test("opening is off by default and open failures preserve a successful import", async () => {
+  const eagle = fakeEagle();
+  let opens = 0;
+  eagle.item.open = async () => {
+    opens++;
+    throw new Error("Cannot open");
+  };
+  await importPin(eagle, pin, { settings: {} });
+  assert.equal(opens, 0);
+  assert.deepEqual(eagle.calls[0].options.tags, ["interiors", "Pinterest"]);
+  const result = await importPin(eagle, pin, {
+    settings: { openPinAfterImport: true },
+  });
+  assert.equal(opens, 1);
+  assert.equal(result.itemId, "item-1");
+  assert.equal(
+    eagle.calls.length,
+    2,
+    "opening failure must not retry the import",
+  );
+});
+
+test("open-after-import runs for local fallback and never for failed imports", async () => {
+  const opened = [];
+  const item = {
+    open: async (id) => {
+      opened.push(id);
+      return true;
+    },
+    addFromPath: async () => "fallback-item",
+  };
+  await assert.rejects(
+    importPin({ item }, pin, { settings: { openPinAfterImport: true } }),
+  );
+  assert.deepEqual(opened, []);
+  await importPin({ item }, pin, {
+    settings: { openPinAfterImport: true },
+    allowLocalFallback: true,
+    download: async () => {},
+  });
+  assert.deepEqual(opened, ["fallback-item"]);
+});
+
 test("selected folder IDs are read through Eagle's folder API", async () => {
   const eagle = fakeEagle();
   assert.deepEqual(await getCurrentTargetFolderIds(eagle), [
