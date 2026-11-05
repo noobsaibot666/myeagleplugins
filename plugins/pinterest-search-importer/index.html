@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pinterest Search Importer</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <header class="toolbar">
+      <form id="searchForm" class="search-form">
+        <input
+          id="searchInput"
+          type="search"
+          placeholder="Search Pinterest"
+          aria-label="Search Pinterest"
+          autocomplete="off"
+        />
+        <button id="searchButton" type="submit">Search</button>
+      </form>
+      <span id="targetLabel" class="target-label">Saving to: —</span>
+      <span id="importStatus" class="import-status" role="status" aria-live="polite"></span>
+      <button id="settingsButton" class="settings-button" type="button" aria-label="Settings" title="Settings">
+        Settings
+      </button>
+    </header>
+
+    <p id="loginNotice" class="login-notice" hidden>
+      Sign in to Pinterest inside the embedded Pinterest page below. Your login stays in that page.
+    </p>
+    <webview
+      id="pinterestView"
+      src="about:blank"
+      preload="js/webview-preload.js"
+      allowpopups
+    ></webview>
+
+    <script src="js/plugin.js"></script>
+  </body>
+</html>

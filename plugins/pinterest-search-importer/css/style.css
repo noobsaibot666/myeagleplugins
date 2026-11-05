@@ -1,0 +1,112 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #f7f7f5;
+  color: #242424;
+  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+.toolbar {
+  z-index: 1;
+  display: flex;
+  flex: 0 0 58px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e2e1de;
+  background: #fff;
+}
+
+.search-form {
+  display: flex;
+  flex: 1 1 380px;
+  gap: 8px;
+  min-width: 180px;
+}
+
+#searchInput {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid #d8d7d3;
+  border-radius: 8px;
+  background: #fafaf9;
+  font: inherit;
+}
+
+#searchButton,
+.settings-button {
+  height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: #bd081c;
+  color: white;
+  font: inherit;
+  cursor: pointer;
+}
+
+.settings-button {
+  border: 1px solid #deddd9;
+  background: #fff;
+  color: #333;
+}
+
+.target-label,
+.import-status {
+  overflow: hidden;
+  max-width: 240px;
+  color: #666;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-status {
+  min-width: 72px;
+}
+
+.login-notice {
+  margin: 0;
+  padding: 9px 16px;
+  border-bottom: 1px solid #ead6a2;
+  background: #fff7df;
+  color: #624d19;
+}
+
+#pinterestView {
+  display: flex;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: #fff;
+}
+
+.pin-import-button {
+  cursor: pointer;
+}
+
+.pin-import-button.importing {
+  cursor: progress;
+}
+
+.pin-import-button.imported {
+  cursor: default;
+}
+
+.pin-import-button.failed {
+  cursor: pointer;
+}
