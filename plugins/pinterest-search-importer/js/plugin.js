@@ -7,6 +7,7 @@ const {
   validateImportMessage,
   getInjectedCardScript,
   getCollectResultsScript,
+  getAdvanceResultsScript,
 } = require(fileURLToPath(new URL("js/pinterest-bridge.js", document.baseURI)));
 const { dedupePinterestResults } = require(fileURLToPath(new URL("js/native-results.js", document.baseURI)));
 const { createSessionState, reduceSessionState } = require(fileURLToPath(new URL("js/session-state.js", document.baseURI)));
@@ -46,6 +47,7 @@ const sessionAction = document.getElementById("sessionAction");
 const sessionStatus = document.getElementById("sessionStatus");
 const signInPanel = document.getElementById("signInPanel");
 const resultsGrid = document.getElementById("resultsGrid");
+const resultsPanel = document.getElementById("resultsPanel");
 const emptyState = document.getElementById("emptyState");
 const emptyTitle = document.getElementById("emptyTitle");
 const emptyMessage = document.getElementById("emptyMessage");
@@ -60,6 +62,8 @@ let guestReady = false;
 let sessionState = createSessionState();
 let currentResults = [];
 let resultPoll = null;
+let advanceInFlight = false;
+let lastAdvanceAt = 0;
 let settings = { ...DEFAULT_SETTINGS };
 try {
   settings = loadSettings(localStorage);
@@ -259,6 +263,37 @@ function startResultPolling() {
   if (resultPoll) window.clearInterval(resultPoll);
   resultPoll = window.setInterval(() => void collectResults(), 1400);
 }
+
+async function advancePinterestResults() {
+  if (
+    advanceInFlight ||
+    !pluginReady ||
+    !guestReady ||
+    !supportsWebview() ||
+    !isPinterestPage()
+  ) return;
+  const now = Date.now();
+  if (now - lastAdvanceAt < 800) return;
+  advanceInFlight = true;
+  lastAdvanceAt = now;
+  try {
+    setStatus("Loading more Pinterest results…");
+    await pinterestView.executeJavaScript(getAdvanceResultsScript());
+    await collectResults();
+    setStatus("Choose a Pin to save to Eagle.");
+  } catch (_error) {
+    setStatus("Pinterest results are still loading…");
+  } finally {
+    advanceInFlight = false;
+  }
+}
+
+resultsPanel?.addEventListener("scroll", async () => {
+  const panel = /** @type {HTMLElement} */ (resultsPanel);
+  const threshold = Math.max(panel.clientHeight, 480);
+  if (panel.scrollTop + panel.clientHeight < panel.scrollHeight - threshold) return;
+  await advancePinterestResults();
+});
 
 sessionAction?.addEventListener("click", () => {
   if (signInPanel) signInPanel.hidden = false;

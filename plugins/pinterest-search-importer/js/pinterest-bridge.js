@@ -413,6 +413,20 @@ function getCollectResultsScript() {
   })()`;
 }
 
+function getAdvanceResultsScript() {
+  return `(() => {
+    const amount = Math.max(window.innerHeight || 800, 600);
+    if (typeof window.scrollBy === "function") {
+      window.scrollBy(0, amount);
+      return true;
+    }
+    const root = document.scrollingElement || document.documentElement;
+    if (!root) return false;
+    root.scrollTop += amount;
+    return true;
+  })()`;
+}
+
 module.exports = {
   buildSearchUrl,
   normalizePinUrl,
@@ -420,4 +434,5 @@ module.exports = {
   validateImportMessage,
   getInjectedCardScript,
   getCollectResultsScript,
+  getAdvanceResultsScript,
 };

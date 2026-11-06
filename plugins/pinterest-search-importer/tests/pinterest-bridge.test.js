@@ -13,6 +13,7 @@ const {
   validateImportMessage,
   getInjectedCardScript,
   getCollectResultsScript,
+  getAdvanceResultsScript,
 } = require("../js/pinterest-bridge");
 
 const pin = {
@@ -231,6 +232,12 @@ test("result collection does not force Pinterest to scroll while the user choose
   assert.doesNotMatch(script, /scrollTop|scrollTo/);
 });
 
+test("pagination uses a separate explicit advance script", () => {
+  const script = getAdvanceResultsScript();
+  assert.match(script, /scrollBy|scrollTop/);
+  assert.notEqual(script, getCollectResultsScript());
+});
+
 function runPlugin({
   messaging = true,
   eagleApi = {},
@@ -260,6 +267,7 @@ function runPlugin({
     "resetSettingsButton",
     "keywordTab",
     "imageTab",
+    "resultsPanel",
   ]) {
     elements[id] = {
       value: "  interior design ",
@@ -279,6 +287,7 @@ function runPlugin({
     };
   }
   const view = elements.pinterestView;
+  const executed = [];
   view.src = "";
   if (messaging) {
     view.loadURL = async (url) => {
@@ -286,6 +295,11 @@ function runPlugin({
     };
     view.getURL = () => loaded.at(-1) || "about:blank";
     view.executeJavaScript = async (script) => {
+      executed.push(script);
+      if (script === getAdvanceResultsScript()) return true;
+      if (script === getCollectResultsScript()) {
+        return { results: [], authenticated: true, required: false };
+      }
       assert.equal(script, getInjectedCardScript());
       return true;
     };
@@ -328,6 +342,7 @@ function runPlugin({
     elements,
     loaded,
     sent,
+    executed,
     external,
     listeners,
     page,
@@ -356,6 +371,24 @@ test("host waits for Eagle readiness, resolves an absolute preload, and navigate
   assert.equal(host.loaded.at(-1), buildSearchUrl("interior design"));
   await host.listeners["pinterestView:did-finish-load"]();
   assert.equal(host.elements.openPinterestButton.hidden, true);
+});
+
+test("native results-panel scrolling advances Pinterest only near the bottom", async () => {
+  const host = runPlugin();
+  host.ready();
+  await host.listeners["pinterestView:dom-ready"]();
+  await host.listeners["searchForm:submit"]({ preventDefault() {} });
+
+  const panel = host.elements.resultsPanel;
+  panel.clientHeight = 500;
+  panel.scrollHeight = 1200;
+  panel.scrollTop = 100;
+  await host.listeners["resultsPanel:scroll"]();
+  assert.equal(host.executed.includes(getAdvanceResultsScript()), false);
+
+  panel.scrollTop = 700;
+  await host.listeners["resultsPanel:scroll"]();
+  assert.equal(host.executed.includes(getAdvanceResultsScript()), true);
 });
 
 test("host loads, changes, resets preferences and forwards them to the importer", async () => {
