@@ -79,6 +79,9 @@ durable queue/resume mechanism; let imports finish before closing the window.
 This release intentionally focuses on Pinterest keyword search and direct Eagle
 imports. Visual/image search is not exposed in the plugin UI.
 
+Pinterest results are collected progressively as Pinterest's infinite-scroll
+page loads more Pins; the plugin does not impose a result-count cap.
+
 ## Pinterest login, security, and policy
 
 Sign in only through Pinterest's page in the embedded browser. The plugin does
