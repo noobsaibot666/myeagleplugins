@@ -28,7 +28,7 @@ const addArenaTag = /** @type {HTMLInputElement} */ (document.getElementById("ad
 const addSearchTag = /** @type {HTMLInputElement} */ (document.getElementById("addSearchTag"));
 const resetSettingsButton = document.getElementById("resetSettingsButton");
 const clearHistoryButton = /** @type {HTMLButtonElement} */ (document.getElementById("clearHistoryButton"));
-const loadMoreButton = /** @type {HTMLButtonElement} */ (document.getElementById("loadMoreButton"));
+const resultsPanel = /** @type {HTMLElement} */ (document.getElementById("resultsPanel"));
 const sessionStatus = document.getElementById("sessionStatus");
 const importStatus = document.getElementById("sessionStatus");
 const importCounts = document.getElementById("importCounts");
@@ -44,6 +44,7 @@ let pluginReady = false;
 let currentResults = [];
 let currentPage = 0;
 let hasMore = false;
+let loadingPage = false;
 let searchTerm = "";
 let settings = { ...DEFAULT_SETTINGS };
 try { settings = loadSettings(localStorage); } catch (_error) { /* session defaults */ }
@@ -91,11 +92,12 @@ function saveBlock(block, action) {
 }
 
 async function performSearch(page = 1) {
-  if (!pluginReady) return;
+  if (!pluginReady || loadingPage) return;
   searchTerm = searchInput.value.trim();
   if (!searchTerm) { setStatus("Enter an Are.na search term."); return; }
+  loadingPage = true;
   searchButton.disabled = true;
-  loadMoreButton.hidden = true;
+  let nextPage = null;
   if (page === 1) {
     currentResults = [];
     currentPage = 0;
@@ -111,13 +113,17 @@ async function performSearch(page = 1) {
     hasMore = payload.hasMore;
     resultsView.render(currentResults);
     resultsSubtitle.textContent = "Save any image block directly into your current Eagle library.";
-    setStatus(hasMore ? "More results available." : "All available image results loaded.");
-    loadMoreButton.hidden = !hasMore;
+    setStatus(hasMore ? "Scroll for more results." : "All available image results loaded.");
+    if (hasMore && resultsPanel.scrollHeight <= resultsPanel.clientHeight + 600) {
+      nextPage = currentPage + 1;
+    }
   } catch (error) {
     resultsView.setEmpty(true, "Are.na search failed", error instanceof Error ? error.message : String(error));
     setStatus("Are.na search failed.");
   } finally {
+    loadingPage = false;
     searchButton.disabled = false;
+    if (nextPage) void performSearch(nextPage);
   }
 }
 
@@ -133,7 +139,11 @@ resetSettingsButton.addEventListener("click", () => { settings = { ...DEFAULT_SE
 clearHistoryButton.addEventListener("click", () => { importQueue.clearHistory(); updateCounts(); setStatus("Session history cleared."); });
 searchForm.addEventListener("submit", (event) => { event.preventDefault(); void performSearch(1); });
 searchButton.addEventListener("click", () => { void performSearch(1); });
-loadMoreButton.addEventListener("click", () => { if (hasMore) void performSearch(currentPage + 1); });
+resultsPanel.addEventListener("scroll", () => {
+  if (hasMore && resultsPanel.scrollTop + resultsPanel.clientHeight >= resultsPanel.scrollHeight - 600) {
+    void performSearch(currentPage + 1);
+  }
+});
 
 const importQueue = createImportQueue({
   concurrency: 3,

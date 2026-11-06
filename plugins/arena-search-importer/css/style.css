@@ -39,7 +39,6 @@ button { cursor:pointer; }
 .result-card-action.saving { color:#ffcf8a; }
 .result-card-action.saved { background:#28643f; }
 .result-card-action.retry { background:#71352e; }
-.load-more-wrap { display:flex; justify-content:center; padding:4px 18px 24px; }
 .empty-state { display:grid; place-items:center; padding:80px 18px; color:#8e9299; text-align:center; }
 .empty-icon { display:grid; place-items:center; width:48px; height:48px; margin-bottom:12px; border:1px solid #43464c; border-radius:12px; color:#c7c9ce; font-size:28px; }
 .empty-state h2 { margin:0 0 5px; color:#dfe0e2; font-size:16px; }

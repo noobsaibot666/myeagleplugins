@@ -5,7 +5,8 @@ rendered in an Eagle-native masonry grid; hover an image and click the centered
 download control to save it directly into the current Eagle library or folder.
 
 The plugin uses Are.na's public v2 search endpoint and filters results to image
-blocks. Results are paginated with a minimal **Load more results** action. Each
+blocks. Results paginate automatically as you scroll near the bottom of the
+Eagle canvas. Each
 import keeps the Are.na block URL as its source website and can add `Are.na` and
 the search phrase as tags.
 
