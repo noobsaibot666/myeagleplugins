@@ -243,6 +243,7 @@ function runPlugin({
   messaging = true,
   eagleApi = {},
   storedSettings = null,
+  apiPages = [],
 } = {}) {
   const elements = {};
   const loaded = [];
@@ -298,6 +299,9 @@ function runPlugin({
     view.executeJavaScript = async (script) => {
       executed.push(script);
       if (script === getAdvanceResultsScript()) return true;
+      if (script.includes("BaseSearchResource")) {
+        return apiPages.length ? apiPages.shift() : { ok: false, status: 404 };
+      }
       if (script === getCollectResultsScript()) {
         return { results: [], authenticated: true, required: false };
       }
@@ -1163,4 +1167,129 @@ test("queued imports capture the selected destination at the user action and ret
     host.elements.importCounts.textContent,
     "Imported 4 · Queued 0 · Failed 0",
   );
+});
+
+const apiPin = (id, extra = {}) => ({
+  id: String(id),
+  images: {
+    "236x": { url: `https://i.pinimg.com/236x/aa/${id}.jpg`, width: 236, height: 354 },
+    "474x": { url: `https://i.pinimg.com/474x/aa/${id}.jpg`, width: 474, height: 711 },
+    "736x": { url: `https://i.pinimg.com/736x/aa/${id}.jpg`, width: 736, height: 1104 },
+    orig: { url: `https://i.pinimg.com/originals/aa/${id}.jpg`, width: 1000, height: 1500 },
+  },
+  title: "",
+  gridTitle: `Grid ${id}`,
+  description: " ",
+  altText: "a concrete stairwell",
+  author: "Studio",
+  isVideo: false,
+  ...extra,
+});
+
+test("JSON search pins normalize into importable results with preview sizes and dimensions", () => {
+  const { normalizeApiPin, parseSearchApiResult, getSearchApiScript } = require("../js/pinterest-api");
+  const pin = normalizeApiPin(apiPin(123));
+  assert.equal(pin.pinUrl, "https://www.pinterest.com/pin/123/");
+  assert.equal(pin.imageUrl, "https://i.pinimg.com/736x/aa/123.jpg");
+  assert.equal(pin.previewUrl, "https://i.pinimg.com/474x/aa/123.jpg");
+  assert.deepEqual(pin.imageVariants, {
+    "1200x": "https://i.pinimg.com/736x/aa/123.jpg",
+    original: "https://i.pinimg.com/originals/aa/123.jpg",
+    "600x": "https://i.pinimg.com/474x/aa/123.jpg",
+  });
+  assert.equal(pin.title, "Grid 123");
+  assert.equal(pin.description, "a concrete stairwell");
+  assert.equal(pin.width, 474);
+  assert.equal(pin.height, 711);
+  assert.equal(normalizeApiPin(apiPin("e1_obfuscated")), null);
+  assert.equal(normalizeApiPin({ ...apiPin(5), images: { orig: { url: "https://evil.test/a.jpg" } } }), null);
+
+  const page = parseSearchApiResult({ ok: true, status: 200, bookmark: "-end-", pins: [apiPin(1), apiPin(2)] });
+  assert.equal(page.results.length, 2);
+  assert.equal(page.done, true);
+  assert.equal(page.bookmark, null);
+  const signedOut = parseSearchApiResult({ ok: true, status: 200, bookmark: "b", pins: [apiPin("e1_x")], authenticated: false });
+  assert.equal(signedOut.authenticated, false);
+  assert.equal(signedOut.rawCount, 1);
+
+  const script = getSearchApiScript('kitchen "quote"', "bm1");
+  assert.match(script, /BaseSearchResource/);
+  assert.match(script, /"kitchen \\"quote\\""/);
+  assert.match(script, /"bm1"/);
+  assert.doesNotMatch(script, /scrollTop|scrollBy/);
+});
+
+test("host searches through the JSON resource, paginates by bookmark, and skips navigation once on Pinterest", async () => {
+  const host = runPlugin({
+    apiPages: [
+      { ok: true, status: 200, bookmark: "next-1", pins: [apiPin(1), apiPin(2)] },
+      { ok: true, status: 200, bookmark: "-end-", pins: [apiPin(2), apiPin(3)] },
+      { ok: true, status: 200, bookmark: "-end-", pins: [apiPin(9)] },
+    ],
+  });
+  host.ready();
+  await host.listeners["pinterestView:dom-ready"]();
+  await host.listeners["searchForm:submit"]({ preventDefault() {} });
+  assert.equal(host.loaded.length, 1);
+  await host.listeners["pinterestView:did-finish-load"]();
+  const apiCalls = () => host.executed.filter((script) => script.includes("BaseSearchResource"));
+  assert.equal(apiCalls().length, 1);
+  assert.equal(host.executed.includes(getCollectResultsScript()), false);
+
+  const panel = host.elements.resultsPanel;
+  Object.assign(panel, { clientHeight: 500, scrollHeight: 4000, scrollTop: 0 });
+  await host.listeners["resultsPanel:scroll"]();
+  assert.equal(apiCalls().length, 1);
+  panel.scrollTop = 2700;
+  await host.listeners["resultsPanel:scroll"]();
+  assert.equal(apiCalls().length, 2);
+  assert.match(apiCalls()[1], /"next-1"/);
+  assert.equal(host.executed.includes(getAdvanceResultsScript()), false);
+  await host.listeners["resultsPanel:scroll"]();
+  assert.equal(apiCalls().length, 2, "no requests after the end bookmark");
+
+  host.elements.searchInput.value = "brutalism";
+  await host.listeners["searchForm:submit"]({ preventDefault() {} });
+  assert.equal(host.loaded.length, 1, "a new search reuses the loaded Pinterest page");
+  assert.equal(apiCalls().length, 3);
+  assert.match(apiCalls()[2], /"brutalism"/);
+});
+
+test("host falls back to page scraping when the JSON resource is unavailable", async () => {
+  const host = runPlugin({ apiPages: [{ ok: false, status: 403 }] });
+  host.ready();
+  await host.listeners["pinterestView:dom-ready"]();
+  await host.listeners["searchForm:submit"]({ preventDefault() {} });
+  await host.listeners["pinterestView:did-finish-load"]();
+  assert.equal(host.executed.includes(getCollectResultsScript()), true);
+  const panel = host.elements.resultsPanel;
+  Object.assign(panel, { clientHeight: 500, scrollHeight: 1200, scrollTop: 700 });
+  await host.listeners["resultsPanel:scroll"]();
+  assert.equal(host.executed.includes(getAdvanceResultsScript()), true);
+});
+
+test("a failing later JSON page retries once, then continues through the Pinterest page without losing results", async () => {
+  const host = runPlugin({
+    apiPages: [
+      { ok: true, status: 200, bookmark: "next-1", pins: [apiPin(1), apiPin(2)] },
+      { ok: false, status: 403 },
+      { ok: false, status: 403 },
+    ],
+  });
+  const timers = [];
+  host.page.setTimeout = (callback) => timers.push(callback);
+  host.ready();
+  await host.listeners["pinterestView:dom-ready"]();
+  await host.listeners["searchForm:submit"]({ preventDefault() {} });
+  await host.listeners["pinterestView:did-finish-load"]();
+  Object.assign(host.elements.resultsPanel, { clientHeight: 500, scrollHeight: 4000, scrollTop: 2700 });
+  await host.listeners["resultsPanel:scroll"]();
+  assert.equal(host.loaded.length, 1, "first failure only schedules a retry");
+  assert.equal(timers.length, 1);
+  timers.shift()();
+  await setImmediate();
+  assert.equal(host.loaded.length, 2, "second failure continues via the Pinterest search page");
+  assert.equal(host.loaded[1], buildSearchUrl("interior design"));
+  await host.listeners["pinterestView:did-finish-load"]();
+  assert.equal(host.executed.includes(getCollectResultsScript()), true);
 });

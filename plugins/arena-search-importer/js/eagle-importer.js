@@ -1,4 +1,4 @@
-/* global setTimeout, clearTimeout */
+/* global URL, setTimeout, clearTimeout */
 "use strict";
 
 const fs = require("node:fs");
@@ -11,7 +11,7 @@ const { normalizeImageUrl } = require("./arena-bridge");
 const { buildImportTags, normalizeSettings } = require("./settings");
 
 const MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
-const DOWNLOAD_TIMEOUT_MS = 15000;
+const DOWNLOAD_TIMEOUT_MS = 45000;
 
 function uniqueStrings(value) {
   return Array.isArray(value) ? [...new Set(value.filter((item) => typeof item === "string" && item.trim()))] : [];
@@ -56,6 +56,16 @@ async function downloadImage(imageUrl, destination) {
   }
 }
 
+/** Pick a file extension Eagle can recognize from the image URL (defaults to .jpg). */
+function extensionFor(imageUrl) {
+  try {
+    const match = /\.(jpe?g|png|gif|webp|avif|bmp|tiff?)$/i.exec(new URL(imageUrl).pathname);
+    return match ? `.${match[1].toLowerCase().replace("jpeg", "jpg")}` : ".jpg";
+  } catch (_error) {
+    return ".jpg";
+  }
+}
+
 async function finishImport(eagleApi, itemId, folderIds, settings) {
   if (settings.openItemAfterImport && typeof eagleApi.item.open === "function") await eagleApi.item.open(itemId).catch(() => {});
   return { itemId, folderIds };
@@ -66,12 +76,18 @@ async function importArenaBlock(eagleApi, block, options = {}) {
   const folderIds = options.folderIds === undefined ? await getCurrentTargetFolderIds(eagleApi) : uniqueStrings(options.folderIds);
   const settings = normalizeSettings(options.settings);
   const imageUrl = normalizeImageUrl(block.imageVariants?.original) || normalizeImageUrl(block.imageVariants?.large) || normalizeImageUrl(block.imageUrl);
-  const metadata = [block.title ? `Title: ${block.title}` : "", block.description || "", block.author ? `Author: ${block.author}` : ""].filter(Boolean).join("\n\n");
+  const channelUrl = typeof block.channelSlug === "string" && /^[a-z0-9-]+$/i.test(block.channelSlug) ? `https://www.are.na/channel/${block.channelSlug}` : "";
+  const metadata = [
+    block.title ? `Title: ${block.title}` : "",
+    block.description || "",
+    block.author ? `Author: ${block.author}` : "",
+    block.channelTitle ? `Channel: ${block.channelTitle}${channelUrl ? ` (${channelUrl})` : ""}` : "",
+  ].filter(Boolean).join("\n\n");
   const importOptions = {
-    name: block.title || `Are.na ${block.pinId}`,
+    name: block.title || (block.channelTitle ? `${block.channelTitle} · ${block.pinId}` : `Are.na ${block.pinId}`),
     website: block.pinUrl,
     annotation: metadata,
-    tags: uniqueStrings([...(block.tags || []), ...buildImportTags(settings, options.searchTerm)]),
+    tags: uniqueStrings([...(block.tags || []), ...buildImportTags(settings, options.searchTerm, block.channelTitle || "")]),
     folders: folderIds,
   };
   if (typeof eagleApi.item.addFromPath === "function") {
@@ -79,7 +95,7 @@ async function importArenaBlock(eagleApi, block, options = {}) {
     let temporaryDirectory;
     try {
       temporaryDirectory = await tempFs.mkdtemp(path.join(os.tmpdir(), "eagle-arena-"));
-      const temporaryFile = path.join(temporaryDirectory, "image.jpg");
+      const temporaryFile = path.join(temporaryDirectory, `image${extensionFor(imageUrl)}`);
       await (options.download || downloadImage)(imageUrl, temporaryFile);
       const result = await eagleApi.item.addFromPath(temporaryFile, importOptions);
       if (typeof result !== "string" || !result.trim()) throw new Error("Eagle did not return an imported item ID");
@@ -94,4 +110,4 @@ async function importArenaBlock(eagleApi, block, options = {}) {
   return finishImport(eagleApi, result, folderIds, settings);
 }
 
-module.exports = { getCurrentTargetFolderIds, importArenaBlock, downloadImage };
+module.exports = { getCurrentTargetFolderIds, importArenaBlock, downloadImage, extensionFor };

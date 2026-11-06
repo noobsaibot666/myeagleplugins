@@ -10,6 +10,7 @@ const {
   getAdvanceResultsScript,
 } = require(fileURLToPath(new URL("js/pinterest-bridge.js", document.baseURI)));
 const { dedupePinterestResults } = require(fileURLToPath(new URL("js/native-results.js", document.baseURI)));
+const { getSearchApiScript, parseSearchApiResult } = require(fileURLToPath(new URL("js/pinterest-api.js", document.baseURI)));
 const { createSessionState, reduceSessionState } = require(fileURLToPath(new URL("js/session-state.js", document.baseURI)));
 const { createResultsView } = require(fileURLToPath(new URL("js/native-results-view.js", document.baseURI)));
 
@@ -54,6 +55,7 @@ const emptyMessage = document.getElementById("emptyMessage");
 const resultsTitle = document.getElementById("resultsTitle");
 const resultsSubtitle = document.getElementById("resultsSubtitle");
 const resultCount = document.getElementById("resultCount");
+const resultsFooter = /** @type {HTMLButtonElement} */ (document.getElementById("resultsFooter"));
 const pinterestView = /** @type {PinterestWebview} */ (
   document.getElementById("pinterestView")
 );
@@ -64,6 +66,21 @@ let currentResults = [];
 let resultPoll = null;
 let advanceInFlight = false;
 let lastAdvanceAt = 0;
+/** "unknown" until the JSON search path is tried; "dom" means fall back to page scraping. */
+let searchMode = "unknown";
+let searchGeneration = 0;
+/** @type {{query: string, bookmark: string|null, done: boolean, loading: boolean, started: boolean}|null} */
+let apiSearch = null;
+let apiFailures = 0;
+
+/** @param {string} text @param {boolean} [retry] */
+function setFooter(text, retry = false) {
+  if (!resultsFooter) return;
+  resultsFooter.hidden = !text;
+  resultsFooter.textContent = text;
+  resultsFooter.className = `results-footer${retry ? " retry" : ""}`;
+  resultsFooter.disabled = !retry;
+}
 let settings = { ...DEFAULT_SETTINGS };
 try {
   settings = loadSettings(localStorage);
@@ -85,6 +102,7 @@ const openPinAfterImport = /** @type {HTMLInputElement} */ (
 );
 
 const resultsView = resultsGrid ? createResultsView({
+  altText: "Pinterest result",
   grid: resultsGrid,
   emptyState,
   emptyTitle,
@@ -242,6 +260,7 @@ function isPinterestPage() {
 }
 
 async function collectResults() {
+  if (searchMode === "api") return;
   if (!pluginReady || !guestReady || !supportsWebview() || !isPinterestPage()) return;
   try {
     const payload = /** @type {{results?: unknown[], authenticated?: boolean, required?: boolean}} */ (await pinterestView.executeJavaScript(getCollectResultsScript()));
@@ -251,7 +270,7 @@ async function collectResults() {
       const nextResults = dedupePinterestResults([...currentResults, ...payload.results], searchInput?.value.trim() || "");
       const changed = nextResults.length !== currentResults.length || nextResults.some((result, index) => result.pinId !== currentResults[index]?.pinId);
       currentResults = nextResults;
-      if (changed) resultsView?.render(currentResults);
+      if (changed) { resultsView?.render(currentResults); setFooter(""); }
       if (resultsSubtitle) resultsSubtitle.textContent = "Save any Pin directly into your current Eagle library.";
     } else if (sessionState.status === "required") {
       resultsView?.setEmpty(true, "Sign in to Pinterest", "Use the compact sign-in action above to continue.");
@@ -261,9 +280,104 @@ async function collectResults() {
   }
 }
 
-function startResultPolling() {
+function stopResultPolling() {
   if (resultPoll) window.clearInterval(resultPoll);
-  resultPoll = window.setInterval(() => void collectResults(), 4000);
+  resultPoll = null;
+}
+
+function startResultPolling() {
+  stopResultPolling();
+  resultPoll = window.setInterval(() => void collectResults(), 1500);
+}
+
+/** True when fewer than ~1.5 screens of results remain below the viewport. */
+function needsMoreResults() {
+  const panel = /** @type {HTMLElement} */ (resultsPanel);
+  if (!panel) return false;
+  const threshold = Math.max(Number(panel.clientHeight) * 1.5, 900);
+  return Number(panel.scrollTop) + Number(panel.clientHeight) >= Number(panel.scrollHeight) - threshold;
+}
+
+/**
+ * Loads the next page through Pinterest's JSON search resource.
+ * Returns false when that path is unusable so the caller can fall back.
+ */
+async function loadApiPage() {
+  const state = apiSearch;
+  if (!state || state.loading || state.done) return true;
+  if (!pluginReady || !guestReady || !supportsWebview() || !isPinterestPage()) return false;
+  const generation = searchGeneration;
+  state.loading = true;
+  state.started = true;
+  setStatus(state.bookmark ? "Loading more Pinterest results…" : "Searching Pinterest…");
+  if (currentResults.length) setFooter("Loading more…");
+  let page;
+  try {
+    page = parseSearchApiResult(await pinterestView.executeJavaScript(getSearchApiScript(state.query, state.bookmark)));
+  } catch (_error) {
+    page = null;
+  } finally {
+    state.loading = false;
+  }
+  if (generation !== searchGeneration) return true;
+  if (!page || !page.ok) {
+    if (searchMode === "api" && currentResults.length) {
+      apiFailures++;
+      if (apiFailures === 1) {
+        // One quick retry, then continue through the real Pinterest page instead of stalling.
+        window.setTimeout(() => void loadApiPage(), 1200);
+        return true;
+      }
+      continueWithPinterestPage(state.query);
+      return true;
+    }
+    return false;
+  }
+  apiFailures = 0;
+  if (!page.results.length && page.rawCount && !page.authenticated) {
+    applySessionEvent({ type: "probe", authenticated: false, required: true });
+    resultsView?.setEmpty(true, "Sign in to Pinterest", "Pinterest only returns full results to signed-in accounts. Use Sign in above.");
+    state.done = true;
+    return true;
+  }
+  searchMode = "api";
+  stopResultPolling();
+  applySessionEvent({ type: "probe", authenticated: true, required: false });
+  const known = new Set(currentResults.map((pin) => pin.pinId));
+  currentResults = dedupePinterestResults([...currentResults, ...page.results], state.query);
+  const fresh = currentResults.filter((pin) => !known.has(pin.pinId));
+  resultsView?.append(fresh);
+  state.bookmark = page.bookmark;
+  state.done = page.done;
+  if (resultsSubtitle) resultsSubtitle.textContent = "Save any Pin directly into your current Eagle library.";
+  if (!currentResults.length) {
+    resultsView?.setEmpty(true, "No Pinterest results", "Try a different or broader keyword.");
+    setStatus("No results.");
+  } else setStatus(state.done ? "All Pinterest results loaded." : "Choose a Pin to save to Eagle.");
+  setFooter(state.done && currentResults.length ? "End of results" : "");
+  // Keep a buffer of results below the fold so scrolling never waits on the network.
+  if (!state.done && needsMoreResults()) window.setTimeout(() => void loadApiPage(), 0);
+  return true;
+}
+
+/** Keep the results already shown and let the real Pinterest page supply further Pins. */
+function continueWithPinterestPage(query) {
+  searchMode = "dom";
+  setStatus("Continuing with the Pinterest page…");
+  setFooter("Loading more…");
+  void pinterestView.loadURL(buildSearchUrl(query)).catch(() => setFooter("Couldn’t load more. Click to retry.", true));
+}
+
+resultsFooter?.addEventListener("click", () => {
+  if (resultsFooter.disabled || !apiSearch) return;
+  if (searchMode === "api") { apiFailures = 0; void loadApiPage(); }
+  else continueWithPinterestPage(apiSearch.query);
+});
+
+async function startDomFallback() {
+  searchMode = "dom";
+  await collectResults();
+  startResultPolling();
 }
 
 async function advancePinterestResults() {
@@ -292,6 +406,10 @@ async function advancePinterestResults() {
 }
 
 resultsPanel?.addEventListener("scroll", async () => {
+  if (searchMode === "api") {
+    if (needsMoreResults()) await loadApiPage();
+    return;
+  }
   const panel = /** @type {HTMLElement} */ (resultsPanel);
   const threshold = Math.max(panel.clientHeight, 480);
   if (panel.scrollTop + panel.clientHeight < panel.scrollHeight - threshold) return;
@@ -300,14 +418,16 @@ resultsPanel?.addEventListener("scroll", async () => {
 
 sessionAction?.addEventListener("click", () => {
   if (signInPanel) signInPanel.hidden = false;
-  if (pinterestView) { pinterestView.style.opacity = "1"; pinterestView.style.pointerEvents = "auto"; pinterestView.style.width = "100%"; pinterestView.style.height = "100%"; }
-  if (searchInput?.value.trim()) void pinterestView.loadURL(buildSearchUrl(searchInput.value));
-  else void pinterestView.loadURL("https://www.pinterest.com/");
+  pinterestView?.classList?.add("visible");
+  pinterestView?.setAttribute("aria-hidden", "false");
+  void pinterestView.loadURL("https://www.pinterest.com/login/");
 });
 document.getElementById("closeSignInButton")?.addEventListener("click", () => {
   if (signInPanel) signInPanel.hidden = true;
-  if (pinterestView) { pinterestView.style.opacity = "0"; pinterestView.style.pointerEvents = "none"; pinterestView.style.width = "1px"; pinterestView.style.height = "1px"; }
-  void collectResults();
+  pinterestView?.classList?.remove("visible");
+  pinterestView?.setAttribute("aria-hidden", "true");
+  // Re-run the search so the (possibly new) session is used from the first page.
+  if (searchInput?.value.trim()) void navigate();
 });
 
 async function navigate() {
@@ -318,11 +438,23 @@ async function navigate() {
     return;
   }
   setStatus("Loading Pinterest…");
+  searchGeneration++;
+  stopResultPolling();
+  apiFailures = 0;
+  if (searchMode === "dom") searchMode = "unknown";
+  setFooter("");
   currentResults = [];
+  apiSearch = { query: searchInput.value.trim(), bookmark: null, done: false, loading: false, started: false };
   resultsView?.clear();
   resultsView?.setEmpty(true, "Loading Pinterest results", "Collecting Pins into an Eagle-native grid…");
+  if (resultsPanel) /** @type {HTMLElement} */ (resultsPanel).scrollTop = 0;
   if (resultsTitle) resultsTitle.textContent = searchInput.value.trim();
   if (resultsSubtitle) resultsSubtitle.textContent = "Searching Pinterest…";
+  // A Pinterest page is already loaded: query the JSON search directly, no page navigation.
+  if (searchMode !== "dom" && isPinterestPage()) {
+    if (await loadApiPage()) return;
+    searchMode = "dom";
+  }
   try {
     await pinterestView.loadURL(buildSearchUrl(searchInput.value));
   } catch (_error) {
@@ -355,11 +487,15 @@ pinterestView?.addEventListener("did-finish-load", async () => {
   try {
     const available = await pinterestView.executeJavaScript(getInjectedCardScript());
     if (available !== true) return showFallback();
-    await collectResults();
     sendStatus({ history: importQueue.getUpdates() });
     if (openPinterestButton) openPinterestButton.hidden = true;
+    if (signInPanel && !signInPanel.hidden) return;
+    if (searchMode !== "dom" && apiSearch && !apiSearch.started) {
+      if (await loadApiPage()) return;
+    }
+    if (searchMode === "api") return;
     setStatus("Choose a Pin to save to Eagle.");
-    startResultPolling();
+    await startDomFallback();
   } catch (_error) {
     setStatus("Pinterest is still loading. Try searching again in a moment.");
   }

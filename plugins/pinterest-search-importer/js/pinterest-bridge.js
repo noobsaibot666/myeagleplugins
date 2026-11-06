@@ -411,9 +411,20 @@ function getCollectResultsScript() {
       if (seen.has(pinId)) continue;
       const card = link.closest('[data-test-id="pin"], [data-test-id="pinWrapper"], [data-grid-item]') || link;
       const images = Array.from(card.querySelectorAll('img'));
-      const candidates = images.map((image) => normalizeImageUrl(image.currentSrc || image.src || image.getAttribute('data-src'))).filter(Boolean);
-      const imageUrl = candidates[0];
-      if (!imageUrl) continue;
+      const candidates = [];
+      for (const image of images) {
+        for (const source of [image.currentSrc, image.src, image.getAttribute('data-src'), ...(image.getAttribute('srcset') || '').split(',').map((entry) => entry.trim().split(/\\s+/)[0])]) {
+          const url = normalizeImageUrl(source);
+          if (!url) continue;
+          const size = url.includes('/originals/') ? 4000 : Number((/\\/(\\d+)x\\//.exec(url) || [])[1] || 0);
+          candidates.push({ url, size });
+        }
+      }
+      if (!candidates.length) continue;
+      // Prefer a sharp-but-light preview (<= 736px wide) for the native grid.
+      const sized = candidates.filter((candidate) => candidate.size && candidate.size <= 736).sort((a, b) => b.size - a.size);
+      const imageUrl = (sized[0] || candidates[0]).url;
+      const image0 = images[0];
       const pin = validateImportMessage({
         pinId, pinUrl, imageUrl,
         title: images[0]?.alt || card.querySelector('[data-test-id="pinTitle"]')?.textContent || '',
@@ -421,6 +432,7 @@ function getCollectResultsScript() {
         author: card.querySelector('[data-test-id="pinnerName"]')?.textContent || '',
         isVideo: Boolean(card.querySelector('video, [data-test-id="video-pin"]'))
       });
+      if (pin && image0 && image0.naturalWidth && image0.naturalHeight) { pin.width = image0.naturalWidth; pin.height = image0.naturalHeight; }
       if (pin) { seen.add(pinId); results.push(pin); }
     }
     const loginRequired = Boolean(document.querySelector('[data-test-id="login-page"], form[action*="login"], [aria-label*="Log in" i], [aria-label*="Sign up" i]')) && !results.length;

@@ -12,59 +12,68 @@ window.addEventListener("unhandledrejection", (event) => {
   if (status) status.textContent = `Plugin error: ${event.reason?.message || event.reason}`;
 });
 
-const { searchArena } = require(modulePath("arena-bridge"));
-const { dedupePinterestResults } = require(modulePath("native-results"));
+const { createArenaSearch } = require(modulePath("arena-bridge"));
 const { createResultsView } = require(modulePath("native-results-view"));
 const { createImportQueue } = require(modulePath("import-queue"));
 const { importArenaBlock, getCurrentTargetFolderIds } = require(modulePath("eagle-importer"));
 const { DEFAULT_SETTINGS, normalizeSettings, loadSettings, saveSettings } = require(modulePath("settings"));
 
-const searchForm = document.getElementById("searchForm");
-const searchInput = /** @type {HTMLInputElement} */ (document.getElementById("searchInput"));
-const searchButton = /** @type {HTMLButtonElement} */ (document.getElementById("searchButton"));
-const settingsButton = document.getElementById("settingsButton");
-const settingsPanel = document.getElementById("settingsPanel");
-const addArenaTag = /** @type {HTMLInputElement} */ (document.getElementById("addArenaTag"));
-const addSearchTag = /** @type {HTMLInputElement} */ (document.getElementById("addSearchTag"));
-const resetSettingsButton = document.getElementById("resetSettingsButton");
-const clearHistoryButton = /** @type {HTMLButtonElement} */ (document.getElementById("clearHistoryButton"));
-const resultsPanel = /** @type {HTMLElement} */ (document.getElementById("resultsPanel"));
-const sessionStatus = document.getElementById("sessionStatus");
-const importStatus = document.getElementById("sessionStatus");
-const importCounts = document.getElementById("importCounts");
-const resultsGrid = document.getElementById("resultsGrid");
-const emptyState = document.getElementById("emptyState");
-const emptyTitle = document.getElementById("emptyTitle");
-const emptyMessage = document.getElementById("emptyMessage");
-const resultCount = document.getElementById("resultCount");
-const resultsTitle = document.getElementById("resultsTitle");
-const resultsSubtitle = document.getElementById("resultsSubtitle");
+const $ = (id) => document.getElementById(id);
+const searchForm = $("searchForm");
+const searchInput = /** @type {HTMLInputElement} */ ($("searchInput"));
+const searchButton = /** @type {HTMLButtonElement} */ ($("searchButton"));
+const settingsButton = $("settingsButton");
+const settingsPanel = $("settingsPanel");
+const settingControls = {
+  addArenaTag: /** @type {HTMLInputElement} */ ($("addArenaTag")),
+  addSearchTag: /** @type {HTMLInputElement} */ ($("addSearchTag")),
+  addChannelTag: /** @type {HTMLInputElement} */ ($("addChannelTag")),
+  includePreviews: /** @type {HTMLInputElement} */ ($("includePreviews")),
+};
+const resetSettingsButton = $("resetSettingsButton");
+const clearHistoryButton = /** @type {HTMLButtonElement} */ ($("clearHistoryButton"));
+const resultsPanel = /** @type {HTMLElement} */ ($("resultsPanel"));
+const sessionStatus = $("sessionStatus");
+const importCounts = $("importCounts");
+const resultsTitle = $("resultsTitle");
+const resultsSubtitle = $("resultsSubtitle");
+const channelBar = $("channelBar");
+const searchNotice = $("searchNotice");
+const resultsFooter = $("resultsFooter");
 
 let pluginReady = false;
-let currentResults = [];
-let currentPage = 0;
-let hasMore = false;
-let loadingPage = false;
 let searchTerm = "";
+/** @type {{slug: string, title: string}|null} */
+let activeChannel = null;
+/** @type {ReturnType<typeof createArenaSearch>|null} */
+let session = null;
+let generation = 0;
+let loading = false;
 let settings = { ...DEFAULT_SETTINGS };
 try { settings = loadSettings(localStorage); } catch (_error) { /* session defaults */ }
 
 const resultsView = createResultsView({
-  grid: resultsGrid,
-  emptyState,
-  emptyTitle,
-  emptyMessage,
-  resultCount,
+  grid: $("resultsGrid"),
+  emptyState: $("emptyState"),
+  emptyTitle: $("emptyTitle"),
+  emptyMessage: $("emptyMessage"),
+  resultCount: $("resultCount"),
+  altText: "Are.na result",
   onSave: (block, action) => saveBlock(block, action),
 });
 
 function setStatus(message) {
-  if (importStatus) importStatus.textContent = message;
+  if (sessionStatus) sessionStatus.textContent = message;
+}
+
+function setFooter(message) {
+  if (!resultsFooter) return;
+  resultsFooter.hidden = !message;
+  resultsFooter.textContent = message || "";
 }
 
 function renderSettings() {
-  addArenaTag.checked = settings.addArenaTag;
-  addSearchTag.checked = settings.addSearchTag;
+  for (const [key, control] of Object.entries(settingControls)) if (control) control.checked = settings[key];
 }
 
 function persistSettings() {
@@ -91,45 +100,98 @@ function saveBlock(block, action) {
   });
 }
 
-async function performSearch(page = 1) {
-  if (!pluginReady || loadingPage) return;
-  searchTerm = searchInput.value.trim();
-  if (!searchTerm) { setStatus("Enter an Are.na search term."); return; }
-  loadingPage = true;
-  searchButton.disabled = true;
-  let nextPage = null;
-  if (page === 1) {
-    currentResults = [];
-    currentPage = 0;
-    resultsView.setEmpty(true, "Loading Are.na results", "Collecting image blocks into an Eagle-native grid…");
-    resultsTitle.textContent = searchTerm;
-    resultsSubtitle.textContent = "Searching Are.na…";
-  }
-  setStatus(page === 1 ? "Searching Are.na…" : "Loading more results…");
-  try {
-    const payload = await searchArena(searchTerm, page);
-    currentResults = dedupePinterestResults([...currentResults, ...payload.results], searchTerm);
-    currentPage = payload.currentPage;
-    hasMore = payload.hasMore;
-    resultsView.render(currentResults);
-    resultsSubtitle.textContent = "Save any image block directly into your current Eagle library.";
-    setStatus(hasMore ? "Scroll for more results." : "All available image results loaded.");
-    if (hasMore && resultsPanel.scrollHeight <= resultsPanel.clientHeight + 600) {
-      nextPage = currentPage + 1;
+function renderChannels(channels) {
+  if (!channelBar) return;
+  channelBar.replaceChildren();
+  const list = activeChannel ? [activeChannel] : channels;
+  channelBar.hidden = !list.length;
+  if (!list.length) return;
+  const chip = (label, count, pressed, onClick) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "channel-chip";
+    button.setAttribute("aria-pressed", String(pressed));
+    button.textContent = label;
+    if (count) {
+      const badge = document.createElement("span");
+      badge.textContent = String(count);
+      button.append(badge);
     }
-  } catch (error) {
-    resultsView.setEmpty(true, "Are.na search failed", error instanceof Error ? error.message : String(error));
-    setStatus("Are.na search failed.");
-  } finally {
-    loadingPage = false;
-    searchButton.disabled = false;
-    if (nextPage) void performSearch(nextPage);
+    button.addEventListener("click", onClick);
+    channelBar.append(button);
+  };
+  chip(activeChannel ? "← All results" : "All results", 0, !activeChannel, () => {
+    if (activeChannel) { activeChannel = null; void startSearch(); }
+  });
+  for (const channel of list) {
+    chip(channel.title, channel.length, activeChannel?.slug === channel.slug, () => {
+      if (activeChannel?.slug === channel.slug) return;
+      activeChannel = { slug: channel.slug, title: channel.title };
+      void startSearch();
+    });
   }
 }
 
-for (const control of [addArenaTag, addSearchTag]) control.addEventListener("change", () => {
-  settings = normalizeSettings({ addArenaTag: addArenaTag.checked, addSearchTag: addSearchTag.checked });
+/** True when fewer than ~1.5 screens of results remain below the viewport. */
+function needsMore() {
+  return resultsPanel.scrollTop + resultsPanel.clientHeight >= resultsPanel.scrollHeight - Math.max(resultsPanel.clientHeight * 1.5, 900);
+}
+
+async function loadMore() {
+  if (!session || loading || !session.hasMore()) return;
+  const current = generation;
+  loading = true;
+  setFooter("Loading more…");
+  try {
+    const batch = await session.next();
+    if (current !== generation) return;
+    resultsView.append(batch.results);
+    if (batch.notice && searchNotice) { searchNotice.hidden = false; searchNotice.textContent = batch.notice; }
+    renderChannels(batch.channels);
+    if (!resultsView.size() && !batch.hasMore) {
+      resultsView.setEmpty(true, "No Are.na images found", `Nothing on Are.na matches “${searchTerm}”. Try a broader or different term.`);
+    }
+    resultsSubtitle.textContent = activeChannel ? `Images from the Are.na channel “${activeChannel.title}”.` : "Image blocks and curated channels matching your search.";
+    setStatus(batch.hasMore ? "Scroll for more." : "All available images loaded.");
+    setFooter(batch.hasMore ? "" : resultsView.size() ? "End of results" : "");
+  } catch (error) {
+    if (current !== generation) return;
+    const message = error instanceof Error ? error.message : String(error);
+    if (resultsView.size()) { setStatus(message); setFooter("Couldn’t load more. Scroll to retry."); }
+    else { resultsView.setEmpty(true, "Are.na search failed", message); setStatus("Are.na search failed."); setFooter(""); }
+    return;
+  } finally {
+    if (current === generation) loading = false;
+  }
+  // Keep a buffer below the fold (or keep going while a batch came back empty)
+  // so scrolling never waits on the network.
+  if (current === generation && session.hasMore() && (needsMore() || !resultsView.size())) void loadMore();
+}
+
+async function startSearch() {
+  if (!pluginReady) return;
+  searchTerm = searchInput.value.trim();
+  if (!searchTerm) { setStatus("Enter an Are.na search term."); return; }
+  generation++;
+  loading = false;
+  session = createArenaSearch(searchTerm, { includePreviews: settings.includePreviews, channel: activeChannel });
+  resultsView.clear();
+  resultsPanel.scrollTop = 0;
+  if (searchNotice) searchNotice.hidden = true;
+  renderChannels([]);
+  setFooter("");
+  resultsView.setEmpty(true, "Loading Are.na results", "Searching image blocks and curated channels…");
+  resultsTitle.textContent = activeChannel ? activeChannel.title : searchTerm;
+  resultsSubtitle.textContent = "Searching Are.na…";
+  setStatus("Searching Are.na…");
+  await loadMore();
+}
+
+for (const control of Object.values(settingControls)) control?.addEventListener("change", () => {
+  const previews = settings.includePreviews;
+  settings = normalizeSettings(Object.fromEntries(Object.entries(settingControls).map(([key, input]) => [key, Boolean(input?.checked)])));
   persistSettings();
+  if (previews !== settings.includePreviews && searchTerm) void startSearch();
 });
 settingsButton.addEventListener("click", () => {
   settingsPanel.hidden = !settingsPanel.hidden;
@@ -137,20 +199,16 @@ settingsButton.addEventListener("click", () => {
 });
 resetSettingsButton.addEventListener("click", () => { settings = { ...DEFAULT_SETTINGS }; renderSettings(); persistSettings(); });
 clearHistoryButton.addEventListener("click", () => { importQueue.clearHistory(); updateCounts(); setStatus("Session history cleared."); });
-searchForm.addEventListener("submit", (event) => { event.preventDefault(); void performSearch(1); });
-searchButton.addEventListener("click", () => { void performSearch(1); });
-resultsPanel.addEventListener("scroll", () => {
-  if (hasMore && resultsPanel.scrollTop + resultsPanel.clientHeight >= resultsPanel.scrollHeight - 600) {
-    void performSearch(currentPage + 1);
-  }
-});
+searchForm.addEventListener("submit", (event) => { event.preventDefault(); activeChannel = null; void startSearch(); });
+searchButton.addEventListener("click", () => { activeChannel = null; void startSearch(); });
+resultsPanel.addEventListener("scroll", () => { if (needsMore()) void loadMore(); }, { passive: true });
 
 const importQueue = createImportQueue({
   concurrency: 3,
-    importer: async (block) => {
-      const job = /** @type {typeof block & {targetFolderIds: Promise<string[]>, settings: import("./settings").ImportSettings, searchTerm: string}} */ (block);
-      return importArenaBlock(eagle, job, { folderIds: await job.targetFolderIds, settings: job.settings, searchTerm: job.searchTerm });
-    },
+  importer: async (block) => {
+    const job = /** @type {typeof block & {targetFolderIds: Promise<string[]>, settings: import("./settings").ImportSettings, searchTerm: string}} */ (block);
+    return importArenaBlock(eagle, job, { folderIds: await job.targetFolderIds, settings: job.settings, searchTerm: job.searchTerm });
+  },
   onUpdate: (status) => {
     updateCounts();
     resultsView.updateStatus(status);
@@ -163,14 +221,13 @@ renderSettings();
 updateCounts();
 searchButton.disabled = true;
 clearHistoryButton.disabled = true;
-sessionStatus.textContent = "Ready";
+setStatus("Ready");
 
 if (typeof eagle !== "undefined") {
   eagle.onPluginCreate(() => {
     pluginReady = true;
     searchButton.disabled = false;
     clearHistoryButton.disabled = false;
-    sessionStatus.textContent = "Are.na connected";
     setStatus("Enter a keyword to search Are.na.");
   });
 } else {

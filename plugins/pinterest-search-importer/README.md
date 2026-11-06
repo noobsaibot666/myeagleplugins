@@ -79,12 +79,20 @@ durable queue/resume mechanism; let imports finish before closing the window.
 This release intentionally focuses on Pinterest keyword search and direct Eagle
 imports. Visual/image search is not exposed in the plugin UI.
 
-Pinterest results are collected progressively as Pinterest's infinite-scroll
-page loads more Pins; the plugin does not impose a result-count cap.
+Results are loaded through Pinterest's own JSON search resource (the same
+request Pinterest's web client makes while you scroll), executed inside the
+signed-in embedded Pinterest page. Each page of Pins arrives with every image
+size and its exact dimensions, so the plugin shows 474px previews, imports the
+736px/original variants, reserves each card's height before the image loads,
+and places cards once into a stable masonry grid (new pages append; existing
+cards never move). The next page is prefetched when about 1.5 screens of
+results remain, and new searches don't reload the Pinterest page.
 
-Results are locally ranked using title, description, author, exact-phrase, and
-all-term matches. Duplicate image URLs are removed while preserving stable
-source order for equal scores.
+Pinterest's ranking order is preserved and duplicates are removed. If a later
+JSON page fails, the plugin retries once and then continues by reading Pins
+from the real Pinterest search page (kept full-size behind the plugin window so
+it renders normally). Signed-out sessions are asked to sign in; the plugin does
+not try to bypass Pinterest's access limits.
 
 ## Pinterest login, security, and policy
 

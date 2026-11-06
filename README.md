@@ -102,7 +102,7 @@ python3 scripts/package-pinterest-search-importer.py
 ```
 
 The Python 3.9+ packager creates a deterministic, validated runtime-only zip at
-`dist/pinterest-search-importer-2.0.0.zip`; generated archives are not committed.
+`dist/pinterest-search-importer-<version>.zip`; generated archives are not committed.
 See the [plugin README](plugins/pinterest-search-importer/README.md#automated-verification-and-release-packaging)
 for the exact automated results, package allowlist, and required live release checks.
 

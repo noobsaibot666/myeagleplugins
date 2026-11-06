@@ -17,7 +17,6 @@ RUNTIME_FILES = (
     "js/arena-bridge.js",
     "js/eagle-importer.js",
     "js/import-queue.js",
-    "js/native-results.js",
     "js/native-results-view.js",
     "js/plugin.js",
     "js/settings.js",

@@ -20,6 +20,7 @@ RUNTIME_FILES = (
     "js/import-queue.js",
     "js/native-results.js",
     "js/native-results-view.js",
+    "js/pinterest-api.js",
     "js/pinterest-bridge.js",
     "js/plugin.js",
     "js/settings.js",

@@ -26,6 +26,8 @@ function normalizePinterestResult(value) {
     ...(input.imageVariants && typeof input.imageVariants === "object" && !Array.isArray(input.imageVariants)
       ? { imageVariants: Object.fromEntries(["1200x", "original", "600x"].map((key) => [key, normalizeImageUrl(input.imageVariants[key])]).filter(([, url]) => url)) }
       : {}),
+    ...(normalizeImageUrl(input.previewUrl) ? { previewUrl: normalizeImageUrl(input.previewUrl) } : {}),
+    ...(Number(input.width) > 0 && Number(input.height) > 0 ? { width: Number(input.width), height: Number(input.height) } : {}),
     title: text("title"),
     description: text("description"),
     author: text("author"),
@@ -67,7 +69,10 @@ function dedupePinterestResults(results, query = "") {
     seenImages.add(normalized.imageUrl);
     output.push(normalized);
   }
-  return output.map((result, index) => ({ result, index, score: scoreResult(result, query) })).sort((a, b) => b.score - a.score || a.index - b.index).map(({ result }) => result);
+  // Pinterest already ranks results; re-sorting by alt text would reorder the
+  // feed (and previously-rendered cards) every time a new page arrives.
+  void query;
+  return output;
 }
 
 module.exports = { normalizePinterestResult, dedupePinterestResults, scoreResult };
