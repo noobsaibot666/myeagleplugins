@@ -409,12 +409,6 @@ function getCollectResultsScript() {
       if (pin) { seen.add(pinId); results.push(pin); }
     }
     const loginRequired = Boolean(document.querySelector('[data-test-id="login-page"], form[action*="login"], [aria-label*="Log in" i], [aria-label*="Sign up" i]')) && !results.length;
-    // Pinterest uses infinite scrolling. Keep advancing the embedded page so
-    // the next polling pass can collect newly loaded Pins without imposing a
-    // plugin-side result cap.
-    const scrollRoot = document.scrollingElement || document.documentElement;
-    if (scrollRoot) scrollRoot.scrollTop = scrollRoot.scrollHeight;
-    if (typeof window.scrollTo === "function") window.scrollTo(0, document.documentElement.scrollHeight);
     return { results, authenticated: !loginRequired, required: loginRequired };
   })()`;
 }

@@ -12,6 +12,7 @@ const {
   normalizeImageUrl,
   validateImportMessage,
   getInjectedCardScript,
+  getCollectResultsScript,
 } = require("../js/pinterest-bridge");
 
 const pin = {
@@ -223,6 +224,11 @@ test("injected script is self-contained and returns false when messaging is unav
     vm.runInNewContext(getInjectedCardScript(), { window: {} }),
     false,
   );
+});
+
+test("result collection does not force Pinterest to scroll while the user chooses a Pin", () => {
+  const script = getCollectResultsScript();
+  assert.doesNotMatch(script, /scrollTop|scrollTo/);
 });
 
 function runPlugin({
