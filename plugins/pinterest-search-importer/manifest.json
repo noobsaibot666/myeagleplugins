@@ -1,9 +1,9 @@
 {
   "id": "com.eagle.pinterest-search-importer",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "name": "Pinterest Search Importer",
   "logo": "plugin.png",
-  "devTools": true,
+  "devTools": false,
   "keywords": ["pinterest", "search", "download", "import"],
   "main": {
     "url": "index.html",

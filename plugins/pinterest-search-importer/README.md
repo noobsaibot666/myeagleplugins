@@ -119,7 +119,7 @@ bridge updates.
 | Reimport is suppressed | Use **Clear session history** if intentional. This can create a second Eagle item; there is no library-wide deduplication. |
 | Settings reset after reopening | Check whether local storage is available; session-only settings are reported in the toolbar. |
 
-Press **F12** in the plugin window for DevTools. For reports, include the Eagle
+For development builds, enable DevTools in the manifest. For reports, include the Eagle
 version, plugin version, relevant public Pin/search URL, and error text, with
 credentials/cookies removed.
 
