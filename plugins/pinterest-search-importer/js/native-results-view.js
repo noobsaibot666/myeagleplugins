@@ -7,13 +7,26 @@ function createResultsView({ grid, emptyState, resultCount, emptyTitle, emptyMes
     if (title) emptyTitle.textContent = title;
     if (message) emptyMessage.textContent = message;
   };
-  const render = (results) => {
-    grid.replaceChildren();
+  const removeMissingCards = (results) => {
+    const ids = new Set(results.map((pin) => pin.pinId));
+    for (const [pinId, entry] of cards) {
+      if (ids.has(pinId)) continue;
+      entry.card.remove();
+      cards.delete(pinId);
+    }
+  };
+  const clear = () => {
+    for (const { card } of cards.values()) card.remove();
     cards.clear();
+    if (typeof grid.replaceChildren === "function") grid.replaceChildren();
+  };
+  const render = (results) => {
     resultCount.textContent = `${results.length} result${results.length === 1 ? "" : "s"}`;
-    if (!results.length) { setEmpty(true); return; }
+    if (!results.length) { clear(); setEmpty(true); return; }
     setEmpty(false);
+    removeMissingCards(results);
     for (const pin of results) {
+      if (cards.has(pin.pinId)) continue;
       const card = document.createElement("article");
       card.className = "result-card";
       card.dataset.pinId = pin.pinId;
@@ -33,12 +46,13 @@ function createResultsView({ grid, emptyState, resultCount, emptyTitle, emptyMes
       action.addEventListener("click", () => onSave(pin, action));
       card.append(image, action);
       grid.append(card);
-      cards.set(pin.pinId, action);
+      cards.set(pin.pinId, { card, action });
     }
   };
   const updateStatus = (status) => {
-    const action = cards.get(status?.key || status?.pinId);
-    if (!action) return;
+    const entry = cards.get(status?.key || status?.pinId);
+    if (!entry) return;
+    const action = entry.action;
     action.className = "result-card-action";
     if (status.state === "queued" || status.state === "importing") {
       action.classList.add("saving");
@@ -60,7 +74,7 @@ function createResultsView({ grid, emptyState, resultCount, emptyTitle, emptyMes
       action.disabled = false;
     }
   };
-  return { render, updateStatus, setEmpty };
+  return { render, updateStatus, setEmpty, clear };
 }
 
 module.exports = { createResultsView };

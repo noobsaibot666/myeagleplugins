@@ -248,8 +248,10 @@ async function collectResults() {
     if (!payload || typeof payload !== "object") return;
     applySessionEvent({ type: "probe", authenticated: payload.authenticated === true, required: payload.required === true });
     if (Array.isArray(payload.results) && payload.results.length) {
-      currentResults = dedupePinterestResults([...currentResults, ...payload.results], searchInput?.value.trim() || "");
-      resultsView?.render(currentResults);
+      const nextResults = dedupePinterestResults([...currentResults, ...payload.results], searchInput?.value.trim() || "");
+      const changed = nextResults.length !== currentResults.length || nextResults.some((result, index) => result.pinId !== currentResults[index]?.pinId);
+      currentResults = nextResults;
+      if (changed) resultsView?.render(currentResults);
       if (resultsSubtitle) resultsSubtitle.textContent = "Save any Pin directly into your current Eagle library.";
     } else if (sessionState.status === "required") {
       resultsView?.setEmpty(true, "Sign in to Pinterest", "Use the compact sign-in action above to continue.");
@@ -279,6 +281,7 @@ async function advancePinterestResults() {
   try {
     setStatus("Loading more Pinterest results…");
     await pinterestView.executeJavaScript(getAdvanceResultsScript());
+    await new Promise((resolve) => window.setTimeout(resolve, 700));
     await collectResults();
     setStatus("Choose a Pin to save to Eagle.");
   } catch (_error) {
@@ -315,6 +318,8 @@ async function navigate() {
     return;
   }
   setStatus("Loading Pinterest…");
+  currentResults = [];
+  resultsView?.clear();
   resultsView?.setEmpty(true, "Loading Pinterest results", "Collecting Pins into an Eagle-native grid…");
   if (resultsTitle) resultsTitle.textContent = searchInput.value.trim();
   if (resultsSubtitle) resultsSubtitle.textContent = "Searching Pinterest…";
