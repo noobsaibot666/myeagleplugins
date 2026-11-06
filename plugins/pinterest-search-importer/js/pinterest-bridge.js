@@ -382,10 +382,42 @@ function getInjectedCardScript() {
   })()`;
 }
 
+function getCollectResultsScript() {
+  return `(() => {
+    ${[parseHttpUrl, normalizePinUrl, normalizeImageUrl, metadataText, validateImportMessage].map((fn) => fn.toString()).join("\n")}
+    const results = [];
+    const seen = new Set();
+    const links = Array.from(document.querySelectorAll('a[href*="/pin/"]'));
+    for (const link of links) {
+      let pinUrl;
+      try { pinUrl = normalizePinUrl(new URL(link.getAttribute('href'), location.href).href); } catch (_) { pinUrl = null; }
+      if (!pinUrl) continue;
+      const pinId = pinUrl.split('/')[4];
+      if (seen.has(pinId)) continue;
+      const card = link.closest('[data-test-id="pin"], [data-test-id="pinWrapper"], [data-grid-item]') || link;
+      const images = Array.from(card.querySelectorAll('img'));
+      const candidates = images.map((image) => normalizeImageUrl(image.currentSrc || image.src || image.getAttribute('data-src'))).filter(Boolean);
+      const imageUrl = candidates[0];
+      if (!imageUrl) continue;
+      const pin = validateImportMessage({
+        pinId, pinUrl, imageUrl,
+        title: images[0]?.alt || card.querySelector('[data-test-id="pinTitle"]')?.textContent || '',
+        description: card.querySelector('[data-test-id="pinDescription"]')?.textContent || '',
+        author: card.querySelector('[data-test-id="pinnerName"]')?.textContent || '',
+        isVideo: Boolean(card.querySelector('video, [data-test-id="video-pin"]'))
+      });
+      if (pin) { seen.add(pinId); results.push(pin); }
+    }
+    const loginRequired = Boolean(document.querySelector('[data-test-id="login-page"], form[action*="login"], [aria-label*="Log in" i], [aria-label*="Sign up" i]')) && !results.length;
+    return { results, authenticated: !loginRequired, required: loginRequired };
+  })()`;
+}
+
 module.exports = {
   buildSearchUrl,
   normalizePinUrl,
   normalizeImageUrl,
   validateImportMessage,
   getInjectedCardScript,
+  getCollectResultsScript,
 };

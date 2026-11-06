@@ -18,9 +18,12 @@ RUNTIME_FILES = (
     "css/style.css",
     "js/eagle-importer.js",
     "js/import-queue.js",
+    "js/native-results.js",
+    "js/native-results-view.js",
     "js/pinterest-bridge.js",
     "js/plugin.js",
     "js/settings.js",
+    "js/session-state.js",
     "js/webview-preload.js",
     "plugin.png",
 )

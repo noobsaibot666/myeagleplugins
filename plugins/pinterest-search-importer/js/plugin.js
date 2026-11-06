@@ -6,7 +6,11 @@ const {
   buildSearchUrl,
   validateImportMessage,
   getInjectedCardScript,
+  getCollectResultsScript,
 } = require(fileURLToPath(new URL("js/pinterest-bridge.js", document.baseURI)));
+const { dedupePinterestResults } = require(fileURLToPath(new URL("js/native-results.js", document.baseURI)));
+const { createSessionState, reduceSessionState } = require(fileURLToPath(new URL("js/session-state.js", document.baseURI)));
+const { createResultsView } = require(fileURLToPath(new URL("js/native-results-view.js", document.baseURI)));
 
 const { importPin, getCurrentTargetFolderIds } = require(
   fileURLToPath(new URL("js/eagle-importer.js", document.baseURI)),
@@ -39,11 +43,24 @@ const settingsButton = /** @type {HTMLButtonElement} */ (
 );
 const openPinterestButton = document.getElementById("openPinterestButton");
 const loginNotice = document.getElementById("loginNotice");
+const sessionAction = document.getElementById("sessionAction");
+const sessionStatus = document.getElementById("sessionStatus");
+const signInPanel = document.getElementById("signInPanel");
+const resultsGrid = document.getElementById("resultsGrid");
+const emptyState = document.getElementById("emptyState");
+const emptyTitle = document.getElementById("emptyTitle");
+const emptyMessage = document.getElementById("emptyMessage");
+const resultsTitle = document.getElementById("resultsTitle");
+const resultsSubtitle = document.getElementById("resultsSubtitle");
+const resultCount = document.getElementById("resultCount");
 const pinterestView = /** @type {PinterestWebview} */ (
   document.getElementById("pinterestView")
 );
 let pluginReady = false;
 let guestReady = false;
+let sessionState = createSessionState();
+let currentResults = [];
+let resultPoll = null;
 let settings = { ...DEFAULT_SETTINGS };
 try {
   settings = loadSettings(localStorage);
@@ -63,6 +80,39 @@ const addSearchTag = /** @type {HTMLInputElement} */ (
 const openPinAfterImport = /** @type {HTMLInputElement} */ (
   document.getElementById("openPinAfterImport")
 );
+
+const resultsView = resultsGrid ? createResultsView({
+  grid: resultsGrid,
+  emptyState,
+  emptyTitle,
+  emptyMessage,
+  resultCount,
+  onSave: (pin, action) => savePin(pin, action),
+}) : null;
+
+function renderSessionState() {
+  if (!sessionStatus) return;
+  sessionStatus.textContent = sessionState.status === "authenticated" ? "Pinterest connected" : sessionState.status === "required" ? "Sign in required" : "Checking session…";
+  sessionStatus.className = sessionState.status;
+  if (sessionAction) {
+    sessionAction.hidden = sessionState.status !== "required";
+    sessionAction.textContent = "Sign in";
+  }
+}
+
+function applySessionEvent(event) {
+  sessionState = reduceSessionState(sessionState, event);
+  renderSessionState();
+}
+
+async function savePin(pin, action) {
+  if (!pluginReady) return;
+  const job = { ...pin, targetFolderIds: getCurrentTargetFolderIds(eagle), settings: { ...settings }, searchTerm: searchInput?.value.trim() || "" };
+  action.disabled = true;
+  action.className = "result-card-action saving";
+  action.textContent = "Saving…";
+  await importQueue.enqueue(job);
+}
 
 function renderSettings() {
   imageVariant.value = settings.imageVariant;
@@ -124,6 +174,7 @@ const importQueue = createImportQueue({
   },
   onUpdate: (status) => {
     updateCounts();
+    resultsView?.updateStatus(status);
     sendStatus(status);
     if (status.error) setStatus(status.error);
     else if (status.state === "done") setStatus("Imported to Eagle.");
@@ -159,9 +210,10 @@ function setStatus(text) {
 }
 
 function showFallback() {
+  applySessionEvent({ type: "probe", authenticated: false, required: true });
   if (openPinterestButton) openPinterestButton.hidden = false;
   if (searchButton) searchButton.disabled = true;
-  setStatus("Embedded Pinterest messaging is unavailable. Use Open Pinterest.");
+  setStatus("Pinterest session needs attention.");
 }
 
 function supportsWebview() {
@@ -184,6 +236,41 @@ function isPinterestPage() {
   }
 }
 
+async function collectResults() {
+  if (!pluginReady || !guestReady || !supportsWebview() || !isPinterestPage()) return;
+  try {
+    const payload = /** @type {{results?: unknown[], authenticated?: boolean, required?: boolean}} */ (await pinterestView.executeJavaScript(getCollectResultsScript()));
+    if (!payload || typeof payload !== "object") return;
+    applySessionEvent({ type: "probe", authenticated: payload.authenticated === true, required: payload.required === true });
+    if (Array.isArray(payload.results) && payload.results.length) {
+      currentResults = dedupePinterestResults([...currentResults, ...payload.results]);
+      resultsView?.render(currentResults);
+      if (resultsSubtitle) resultsSubtitle.textContent = "Save any Pin directly into your current Eagle library.";
+    } else if (sessionState.status === "required") {
+      resultsView?.setEmpty(true, "Sign in to Pinterest", "Use the compact sign-in action above to continue.");
+    }
+  } catch (_error) {
+    setStatus("Pinterest results are still loading…");
+  }
+}
+
+function startResultPolling() {
+  if (resultPoll) window.clearInterval(resultPoll);
+  resultPoll = window.setInterval(() => void collectResults(), 1400);
+}
+
+sessionAction?.addEventListener("click", () => {
+  if (signInPanel) signInPanel.hidden = false;
+  if (pinterestView) { pinterestView.style.opacity = "1"; pinterestView.style.pointerEvents = "auto"; pinterestView.style.width = "100%"; pinterestView.style.height = "100%"; }
+  if (searchInput?.value.trim()) void pinterestView.loadURL(buildSearchUrl(searchInput.value));
+  else void pinterestView.loadURL("https://www.pinterest.com/");
+});
+document.getElementById("closeSignInButton")?.addEventListener("click", () => {
+  if (signInPanel) signInPanel.hidden = true;
+  if (pinterestView) { pinterestView.style.opacity = "0"; pinterestView.style.pointerEvents = "none"; pinterestView.style.width = "1px"; pinterestView.style.height = "1px"; }
+  void collectResults();
+});
+
 async function navigate() {
   if (!pluginReady || !guestReady) return;
   if (!supportsWebview()) return showFallback();
@@ -192,7 +279,9 @@ async function navigate() {
     return;
   }
   setStatus("Loading Pinterest…");
-  if (loginNotice) loginNotice.hidden = false;
+  resultsView?.setEmpty(true, "Loading Pinterest results", "Collecting Pins into an Eagle-native grid…");
+  if (resultsTitle) resultsTitle.textContent = searchInput.value.trim();
+  if (resultsSubtitle) resultsSubtitle.textContent = "Searching Pinterest…";
   try {
     await pinterestView.loadURL(buildSearchUrl(searchInput.value));
   } catch (_error) {
@@ -219,18 +308,19 @@ openPinterestButton?.addEventListener("click", async () => {
 });
 
 pinterestView?.addEventListener("did-finish-load", async () => {
+  if (openPinterestButton) openPinterestButton.hidden = true;
   if (!pluginReady || !guestReady || !supportsWebview() || !isPinterestPage())
     return;
   try {
-    const available = await pinterestView.executeJavaScript(
-      getInjectedCardScript(),
-    );
+    const available = await pinterestView.executeJavaScript(getInjectedCardScript());
     if (available !== true) return showFallback();
+    await collectResults();
     sendStatus({ history: importQueue.getUpdates() });
     if (openPinterestButton) openPinterestButton.hidden = true;
-    setStatus("Choose a Pin to send to Eagle.");
+    setStatus("Choose a Pin to save to Eagle.");
+    startResultPolling();
   } catch (_error) {
-    showFallback();
+    setStatus("Pinterest is still loading. Try searching again in a moment.");
   }
 });
 
@@ -240,6 +330,7 @@ pinterestView?.addEventListener("dom-ready", () => {
   if (searchButton) searchButton.disabled = false;
   if (!supportsWebview()) return showFallback();
   setStatus("Enter a keyword to search Pinterest.");
+  applySessionEvent({ type: "probe", authenticated: true });
 });
 
 pinterestView?.addEventListener("ipc-message", async (event) => {
@@ -278,6 +369,7 @@ pinterestView?.addEventListener("did-fail-load", (event) => {
 if (searchButton) searchButton.disabled = true;
 if (clearHistoryButton) clearHistoryButton.disabled = true;
 updateCounts();
+renderSessionState();
 
 const keywordTab = document.getElementById("keywordTab");
 const imageTab = document.getElementById("imageTab");

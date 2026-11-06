@@ -1,4 +1,4 @@
-# Pinterest Search Importer (v2.0.0)
+# Pinterest Search Importer (v2.1.0)
 
 Eagle Window plugin for Pinterest keyword searches and user-initiated image imports.
 This is a compatible v2 implementation: the original published Pinterest Visual
@@ -17,10 +17,10 @@ is still required before publishing.
    See the [Eagle Plugin API guide](https://developer.eagle.cool/plugin-api/get-started).
 3. Select the destination folder(s) in Eagle's sidebar before importing.
 4. In **Keyword search**, enter a phrase such as `mid century interior`, then
-   press Enter or **Search**. Results load in Pinterest's embedded web page.
-   Sign in there if Pinterest requests it.
-5. Click **Download to Eagle** directly on a rendered image card. The control
-   changes to **Importing…**, then **Imported**, or **Retry** on failure. Video
+   press Enter or **Search**. Results render in an Eagle-native masonry grid.
+   The Pinterest session stays hidden unless a sign-in action is required.
+5. Hover a result and click **Save to Eagle**. The control changes to **Saving…**,
+   then **Saved**, or **Retry** on failure. Video
    Pins are unsupported and report an error instead of importing a thumbnail.
 
 Only clicked images are imported. Scrolling decorates cards Pinterest renders;
@@ -144,7 +144,8 @@ The packager uses an explicit runtime file allowlist, sorted entries, fixed ZIP
 timestamps/permissions, and stored bytes (no compressor variation). Unchanged
 inputs produce identical archive bytes. It validates matching manifest/package
 versions, packaged entry point/icon, archive entries, and CRCs before writing.
-The zip has no enclosing folder and contains exactly these 11 files:
+The zip has no enclosing folder and contains the allowlisted runtime files,
+including the native results and session modules:
 
 ```text
 css/style.css
