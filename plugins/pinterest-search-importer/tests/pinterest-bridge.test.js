@@ -254,14 +254,6 @@ function runPlugin({
     "resetSettingsButton",
     "keywordTab",
     "imageTab",
-    "imageSearchPanel",
-    "eagleImageButton",
-    "clipboardImageButton",
-    "imageDropZone",
-    "imageFileInput",
-    "clearImageButton",
-    "imagePreview",
-    "imageInputStatus",
   ]) {
     elements[id] = {
       value: "  interior design ",
@@ -404,90 +396,6 @@ test("host loads, changes, resets preferences and forwards them to the importer"
     JSON.parse(host.writes.at(-1).value),
     require("../js/settings").DEFAULT_SETTINGS,
   );
-});
-
-test("image search accepts selected, clipboard, and dropped images without persistence or navigation", async () => {
-  const host = runPlugin({
-    eagleApi: {
-      item: {
-        getSelected: async () => [
-          {
-            ext: "png",
-            fileURL: "file:///selected.png",
-            name: "Selected image",
-          },
-        ],
-      },
-      clipboard: {
-        readImage: () => ({
-          isEmpty: () => false,
-          toDataURL: () => "data:image/png;base64,abc",
-        }),
-      },
-    },
-  });
-  host.ready();
-  host.listeners["imageTab:click"]();
-  assert.equal(host.elements.imageSearchPanel.hidden, false);
-  assert.equal(host.elements.pinterestView.hidden, true);
-  await host.listeners["eagleImageButton:click"]();
-  assert.equal(host.elements.imagePreview.src, "file:///selected.png");
-  await host.listeners["clipboardImageButton:click"]();
-  assert.equal(host.elements.imagePreview.src, "data:image/png;base64,abc");
-  host.listeners["imageDropZone:drop"]({
-    preventDefault() {},
-    dataTransfer: {
-      files: [
-        { type: "image/png", path: "/tmp/dropped.png", name: "dropped.png" },
-      ],
-    },
-  });
-  assert.equal(host.elements.imagePreview.src, "file:///tmp/dropped.png");
-  assert.equal(host.loaded.length, 0);
-  assert.equal(host.writes.length, 0);
-  host.listeners["clearImageButton:click"]();
-  assert.equal(host.elements.imagePreview.hidden, true);
-  host.listeners["keywordTab:click"]();
-  assert.equal(host.elements.pinterestView.hidden, false);
-});
-
-test("image search reports empty inputs and rejects non-image drops", async () => {
-  const host = runPlugin({
-    eagleApi: {
-      item: { getSelected: async () => [] },
-      clipboard: { readImage: () => ({ isEmpty: () => true }) },
-    },
-  });
-  host.ready();
-  await host.listeners["eagleImageButton:click"]();
-  assert.match(host.elements.imageInputStatus.textContent, /Select an image/);
-  await host.listeners["clipboardImageButton:click"]();
-  assert.match(host.elements.imageInputStatus.textContent, /no image/i);
-  host.listeners["imageDropZone:drop"]({
-    preventDefault() {},
-    dataTransfer: { files: [{ type: "text/plain", name: "note.txt" }] },
-  });
-  assert.match(host.elements.imageInputStatus.textContent, /Choose an image/);
-});
-
-test("local image previews release object URLs on replacement and clearing", () => {
-  const host = runPlugin();
-  const revoked = [];
-  let count = 0;
-  host.page.URL = {
-    createObjectURL: () => `blob:preview-${++count}`,
-    revokeObjectURL: (url) => revoked.push(url),
-  };
-  host.elements.imageFileInput.files = [
-    { type: "image/png", name: "local.png" },
-  ];
-  host.listeners["imageFileInput:change"]();
-  assert.equal(host.elements.imagePreview.src, "blob:preview-1");
-  host.listeners["imageFileInput:change"]();
-  assert.deepEqual(revoked, ["blob:preview-1"]);
-  host.listeners["clearImageButton:click"]();
-  assert.deepEqual(revoked, ["blob:preview-1", "blob:preview-2"]);
-  assert.equal(host.writes.length, 0);
 });
 
 test("a successful retry clears the previous toolbar error", async () => {

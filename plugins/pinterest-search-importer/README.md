@@ -74,14 +74,10 @@ Closing/reopening the plugin also resets history. Session history retains IDs an
 outcomes in memory, not downloaded images or Pin descriptions. Closing is not a
 durable queue/resume mechanism; let imports finish before closing the window.
 
-## Visual-search compatibility limitation
+## Search scope
 
-**Image search** accepts an Eagle-selected image, clipboard image, or a local
-dropped/chosen image for a session-only preview. It explicitly reports:
-“Visual search compatibility is planned; keyword search is available now.”
-It does not upload the input, run Pinterest Lens, or reproduce the unavailable
-original visual-search workflow. **Clear image** removes the preview. Use
-**Keyword search** for the supported search/import flow.
+This release intentionally focuses on Pinterest keyword search and direct Eagle
+imports. Visual/image search is not exposed in the plugin UI.
 
 ## Pinterest login, security, and policy
 

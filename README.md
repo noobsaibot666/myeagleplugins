@@ -7,7 +7,7 @@ Local dev environment for building [Eagle](https://eagle.cool) plugins. Docs: ht
 - [Pinterest Search Importer v2](plugins/pinterest-search-importer/README.md) —
   keyword search in embedded Pinterest with an in-image **Download to Eagle**
   action, selected-folder imports, metadata/tags, and session duplicate protection.
-  Compatible replacement implementation; Image search is preview-only. Live
+  Compatible replacement implementation focused on Pinterest keyword search. Live
   Eagle/Pinterest UI validation is required before publishing.
 
 ## Layout

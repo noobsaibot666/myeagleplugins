@@ -50,7 +50,7 @@ Image cards must use safe normalized image URLs already validated by the bridge.
 
 ## Compatibility and scope
 
-- The existing Image search compatibility tab stays available, but it receives the same native shell and no longer exposes the Pinterest webview as its main content.
+- The plugin exposes keyword search only; the unimplemented Image search compatibility tab is removed from the product surface.
 - Existing folder selection, import settings, duplicate handling, queue concurrency, retry behavior, and Eagle metadata remain unchanged unless the native result adapter requires a small interface adjustment.
 - The old webview injection button path is removed from the visible workflow and retained only as a fallback for extracting records if no direct bridge path is available.
 
