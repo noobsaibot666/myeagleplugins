@@ -9,6 +9,9 @@ Local dev environment for building [Eagle](https://eagle.cool) plugins. Docs: ht
   action, selected-folder imports, metadata/tags, and session duplicate protection.
   Compatible replacement implementation focused on Pinterest keyword search. Live
   Eagle/Pinterest UI validation is required before publishing.
+- [Frame Set Search Importer](plugins/frameset-search-importer/README.md) —
+  native Frame Set keyword search with a 16:9-first results grid and one-click
+  still-frame imports into Eagle.
 
 ## Layout
 
@@ -102,3 +105,16 @@ The Python 3.9+ packager creates a deterministic, validated runtime-only zip at
 `dist/pinterest-search-importer-2.0.0.zip`; generated archives are not committed.
 See the [plugin README](plugins/pinterest-search-importer/README.md#automated-verification-and-release-packaging)
 for the exact automated results, package allowlist, and required live release checks.
+
+## Frame Set Search Importer validation and packaging
+
+```bash
+npm --prefix plugins/frameset-search-importer test
+npx eslint plugins/frameset-search-importer --no-warn-ignored
+npx tsc --noEmit -p plugins/frameset-search-importer
+git diff --check
+python3 scripts/package-frameset-search-importer.py
+```
+
+The Python 3.9+ packager creates a deterministic runtime-only Eagle plugin archive at
+`dist/frameset-search-importer-0.1.0.eagleplugin`.
