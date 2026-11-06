@@ -159,3 +159,21 @@ test("a channel-only session pages that channel and reports rate limiting clearl
   assert.equal(calls.length, 3, "two backed-off retries before giving up");
   assert.match(calls[0], /^\/v2\/channels\/red-chairs\/contents/);
 });
+
+test("filename titles still count for matching, and the fallback also searches single images", async () => {
+  const { fetchImpl } = fakeApi({
+    "/v2/search?q=women+skierg": { current_page: 1, total_pages: 0, blocks: [], channels: [] },
+    "/v2/search/channels?q=women+skierg": { channels: [] },
+    "/v2/search?q=skierg": { current_page: 1, total_pages: 1, blocks: [image(30, "ski-ergs.jpg?v=1691670888-width=1400"), image(31, "Rowing machine")], channels: [] },
+    "/v2/search/channels?q=skierg": { channels: [] },
+  });
+  const batch = await createArenaSearch("women SkiErg", { fetchImpl }).next();
+  assert.deepEqual(batch.results.map((item) => item.pinId), ["30"]);
+  assert.equal(batch.results[0].title, "", "the filename is still hidden from display");
+  assert.match(batch.notice, /Showing results for “skierg”/);
+});
+
+test("compound words written apart still match", () => {
+  assert.equal(matchRatio("ski-ergs.jpg", searchTokens("skierg")), 1);
+  assert.equal(matchRatio("Ski Erg intervals", searchTokens("SkiErg")), 1);
+});

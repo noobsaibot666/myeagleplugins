@@ -7,7 +7,7 @@ const https = require("node:https");
 /**
  * @typedef {{pinId: string, pinUrl: string, imageUrl: string, previewUrl: string, imageVariants: ImageVariants,
  *   title: string, description: string, author: string, kind: string, channelTitle: string, channelSlug: string,
- *   caption: string, isVideo: boolean, score?: number}} ArenaResult
+ *   caption: string, matchText: string, isVideo: boolean, score?: number}} ArenaResult
  */
 /** @typedef {{slug: string, title: string, length: number, owner: string, score: number}} ArenaChannel */
 
@@ -97,9 +97,13 @@ function searchTokens(query) {
 /** Fraction of query tokens present (as word prefixes) in `value`. */
 function matchRatio(value, tokens) {
   if (!tokens.length) return 1;
-  const words = new Set((String(value || "").toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).map(stem));
+  const rawWords = String(value || "").toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+  const words = new Set(rawWords.map(stem));
+  // Compound words written apart ("ski-ergs", "ski erg") still match "skierg".
+  const joined = rawWords.join("");
   let hits = 0;
   for (const token of tokens) {
+    if (token.length >= 5 && joined.includes(token)) { hits++; continue; }
     for (const word of words) {
       if (word === token || (token.length >= 3 && word.startsWith(token)) || (word.length >= 4 && token.startsWith(word))) { hits++; break; }
     }
@@ -144,6 +148,8 @@ function normalizeArenaBlock(value, context = {}) {
     channelTitle,
     channelSlug: text(context.channel?.slug),
     caption: title || channelTitle,
+    // Filename titles aren't shown, but their words ("ski-ergs.jpg") still count for matching.
+    matchText: [rawTitle, text(block.description), text(block.source?.title)].filter(Boolean).join(" "),
     isVideo: false,
   };
 }
@@ -170,7 +176,7 @@ function normalizeChannel(value, tokens) {
 }
 
 function scoreResult(result, tokens, channelScore = 0) {
-  const titleRatio = matchRatio(`${result.title} ${result.description}`, tokens);
+  const titleRatio = matchRatio(result.matchText || `${result.title} ${result.description}`, tokens);
   return (channelScore ? 40 + channelScore * 0.4 : 0) + titleRatio * 60 + (IMAGE_CLASSES.has(result.kind) ? 10 : 0) + (result.title ? 4 : 0);
 }
 
@@ -233,7 +239,7 @@ async function searchArena(query, page = 1, per = 20, fetchImpl = requestJson, o
   const results = (Array.isArray(payload?.blocks) ? payload.blocks : [])
     .map((block) => normalizeArenaBlock(block, { includePreviews: options.includePreviews }))
     .filter(Boolean)
-    .filter((block) => matchRatio(`${block.title} ${block.description} ${block.author}`, tokens) === 1)
+    .filter((block) => matchRatio(`${block.matchText} ${block.author}`, tokens) >= (options.minMatch ?? 1))
     .map((block) => ({ ...block, score: scoreResult(block, tokens) }));
   const channels = (Array.isArray(payload?.channels) ? payload.channels : []).map((channel) => normalizeChannel(channel, tokens)).filter(Boolean);
   const currentPage = Number(payload?.current_page) || page;
@@ -333,10 +339,21 @@ function createArenaSearch(query, options = {}) {
       channelSearchDone = true;
       if (!channels.length && !batch.length && tokens.length > 1) {
         // Nothing matches every term: fall back to the most specific single term, and say so.
-        const term = [...String(query).toLowerCase().match(/[\p{L}\p{N}]+/gu) || []].sort((a, b) => b.length - a.length)[0];
-        if (term) {
-          try { addChannels(await searchChannels(term, fetchImpl, searchTokens(term))); } catch (error) { failure = error; }
-          if (channels.length) notice = `No Are.na images match every term. Showing channels for “${term}”.`;
+        // Try the most specific terms first; use the first one that finds anything.
+        const terms = [...new Set(String(query).toLowerCase().match(/[\p{L}\p{N}]+/gu) || [])].filter((term) => term.length >= 3).sort((a, b) => b.length - a.length);
+        for (const term of terms) {
+          const [blocks, related] = await Promise.allSettled([
+            searchArena(term, 1, 20, fetchImpl, { includePreviews }),
+            searchChannels(term, fetchImpl, searchTokens(term)),
+          ]);
+          if (blocks.status === "fulfilled") batch = batch.concat(blocks.value.results);
+          else failure = blocks.reason;
+          if (related.status === "fulfilled") addChannels(related.value);
+          else failure = related.reason;
+          if (batch.length || channels.length) {
+            notice = `No Are.na images match every term of “${query.trim()}”. Showing results for “${term}”.`;
+            break;
+          }
         }
       }
       await settle([loadChannelPage, loadChannelPage]);
