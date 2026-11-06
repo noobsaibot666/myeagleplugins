@@ -1,0 +1,3 @@
+3313ffc5a3da5bdfd1ff091bcb62594d76fc72783c089f2c78fc082aa48d6f5d  Are.na Search Importer v0.3.2.eagleplugin
+b4ea2ec5e0f7526a92557430c271f65a9e93fc3b39442f8624e470c82aabb551  Frame Set Search Importer v0.1.0.eagleplugin
+3e254eed6dd9d826935715fc7f1dd4cfe7fb56c1c47771a3a2806c61a504b10b  Pinterest Search Importer v2.4.5.eagleplugin
