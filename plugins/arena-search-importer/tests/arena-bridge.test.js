@@ -50,3 +50,13 @@ test("searches Are.na and returns only normalized image blocks", async () => {
   assert.equal(result.currentPage, 2);
   assert.equal(result.hasMore, true);
 });
+
+test("searches Are.na with all query terms present in block metadata", async () => {
+  const relevant = { ...block, id: 10, title: "Male CrossFit training" };
+  const unrelated = { ...block, id: 11, title: "Japanese cooking at home" };
+  const result = await searchArena("male crossfit", 1, 20, async () => ({
+    ok: true,
+    async json() { return { current_page: 1, total_pages: 1, blocks: [relevant, unrelated] }; },
+  }));
+  assert.deepEqual(result.results.map((item) => item.pinId), ["10"]);
+});

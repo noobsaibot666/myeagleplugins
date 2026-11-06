@@ -44,6 +44,20 @@ function text(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function searchTokens(query) {
+  return String(query || "").toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+}
+
+function matchesSearch(block, query) {
+  const tokens = searchTokens(query);
+  if (!tokens.length) return true;
+  const metadata = [block.title, block.description, block.author]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return tokens.every((token) => metadata.includes(token));
+}
+
 /** @param {unknown} value */
 function normalizeArenaBlock(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -86,7 +100,12 @@ async function searchArena(query, page = 1, per = 20, fetchImpl = requestJson) {
   const response = await fetchImpl(buildSearchUrl(query, page, per));
   if (!response.ok) throw new Error(`Are.na search returned HTTP ${response.status}`);
   const payload = await response.json();
-  const results = Array.isArray(payload?.blocks) ? payload.blocks.map(normalizeArenaBlock).filter(Boolean) : [];
+  const results = Array.isArray(payload?.blocks)
+    ? payload.blocks
+        .map(normalizeArenaBlock)
+        .filter(Boolean)
+        .filter((block) => matchesSearch(block, query))
+    : [];
   return {
     results,
     currentPage: Number(payload?.current_page) || page,
