@@ -33,16 +33,41 @@ function normalizePinterestResult(value) {
   };
 }
 
-function dedupePinterestResults(results) {
-  const output = [];
-  const seen = new Set();
-  for (const result of Array.isArray(results) ? results : []) {
-    const normalized = normalizePinterestResult(result);
-    if (!normalized || seen.has(normalized.pinId)) continue;
-    seen.add(normalized.pinId);
-    output.push(normalized);
-  }
-  return output;
+/** @param {unknown} query @returns {string[]} */
+function searchTokens(query) {
+  return String(query || "").toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
 }
 
-module.exports = { normalizePinterestResult, dedupePinterestResults };
+function scoreResult(result, query) {
+  const phrase = String(query || "").trim().toLowerCase();
+  if (!phrase) return 0;
+  const title = `${result.title || ""}`.toLowerCase();
+  const description = `${result.description || ""}`.toLowerCase();
+  const author = `${result.author || ""}`.toLowerCase();
+  const combined = `${title} ${description} ${author}`;
+  const tokens = searchTokens(phrase);
+  let score = 0;
+  if (title === phrase) score += 1000;
+  if (title.includes(phrase)) score += 400;
+  if (description.includes(phrase)) score += 120;
+  if (author.includes(phrase)) score += 40;
+  score += tokens.reduce((total, token) => total + (title.includes(token) ? 80 : 0) + (description.includes(token) ? 20 : 0) + (author.includes(token) ? 8 : 0), 0);
+  if (tokens.length && tokens.every((token) => combined.includes(token))) score += 160;
+  return score;
+}
+
+function dedupePinterestResults(results, query = "") {
+  const output = [];
+  const seen = new Set();
+  const seenImages = new Set();
+  for (const result of Array.isArray(results) ? results : []) {
+    const normalized = normalizePinterestResult(result);
+    if (!normalized || seen.has(normalized.pinId) || seenImages.has(normalized.imageUrl)) continue;
+    seen.add(normalized.pinId);
+    seenImages.add(normalized.imageUrl);
+    output.push(normalized);
+  }
+  return output.map((result, index) => ({ result, index, score: scoreResult(result, query) })).sort((a, b) => b.score - a.score || a.index - b.index).map(({ result }) => result);
+}
+
+module.exports = { normalizePinterestResult, dedupePinterestResults, scoreResult };

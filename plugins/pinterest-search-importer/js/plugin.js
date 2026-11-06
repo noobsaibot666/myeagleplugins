@@ -244,7 +244,7 @@ async function collectResults() {
     if (!payload || typeof payload !== "object") return;
     applySessionEvent({ type: "probe", authenticated: payload.authenticated === true, required: payload.required === true });
     if (Array.isArray(payload.results) && payload.results.length) {
-      currentResults = dedupePinterestResults([...currentResults, ...payload.results]);
+      currentResults = dedupePinterestResults([...currentResults, ...payload.results], searchInput?.value.trim() || "");
       resultsView?.render(currentResults);
       if (resultsSubtitle) resultsSubtitle.textContent = "Save any Pin directly into your current Eagle library.";
     } else if (sessionState.status === "required") {

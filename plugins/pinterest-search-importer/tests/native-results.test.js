@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { normalizePinterestResult, dedupePinterestResults } = require("../js/native-results.js");
+const { normalizePinterestResult, dedupePinterestResults, scoreResult } = require("../js/native-results.js");
 
 const pin = {
   pinId: "123",
@@ -27,5 +27,15 @@ test("rejects unsafe result URLs", () => {
 });
 
 test("deduplicates results by Pin ID while preserving order", () => {
-  assert.deepEqual(dedupePinterestResults([pin, { ...pin, title: "Updated" }, { ...pin, pinId: "456", pinUrl: "https://www.pinterest.com/pin/456/" }]).map((item) => item.pinId), ["123", "456"]);
+  assert.deepEqual(dedupePinterestResults([pin, { ...pin, title: "Updated" }, { ...pin, pinId: "456", pinUrl: "https://www.pinterest.com/pin/456/", imageUrl: "https://i.pinimg.com/736x/other.jpg" }]).map((item) => item.pinId), ["123", "456"]);
+});
+
+test("removes duplicate image URLs and ranks exact title matches first", () => {
+  const results = dedupePinterestResults([
+    { ...pin, title: "A room" },
+    { ...pin, pinId: "456", pinUrl: "https://www.pinterest.com/pin/456/", imageUrl: "https://i.pinimg.com/736x/other.jpg", title: "Green kitchen" },
+    { ...pin, pinId: "789", pinUrl: "https://www.pinterest.com/pin/789/", imageUrl: "https://i.pinimg.com/736x/another.jpg", title: "Kitchen" },
+  ], "green kitchen");
+  assert.deepEqual(results.map((item) => item.pinId), ["456", "789", "123"]);
+  assert.ok(scoreResult(results[0], "green kitchen") > scoreResult(results[1], "green kitchen"));
 });

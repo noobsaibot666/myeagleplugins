@@ -108,7 +108,7 @@ async function performSearch(page = 1) {
   setStatus(page === 1 ? "Searching Are.na…" : "Loading more results…");
   try {
     const payload = await searchArena(searchTerm, page);
-    currentResults = dedupePinterestResults([...currentResults, ...payload.results]);
+    currentResults = dedupePinterestResults([...currentResults, ...payload.results], searchTerm);
     currentPage = payload.currentPage;
     hasMore = payload.hasMore;
     resultsView.render(currentResults);

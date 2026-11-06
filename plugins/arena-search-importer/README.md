@@ -10,6 +10,10 @@ Eagle canvas. Each
 import keeps the Are.na block URL as its source website and can add `Are.na` and
 the search phrase as tags.
 
+Results are locally ranked using title, description, author, exact-phrase, and
+all-term matches. Duplicate image URLs are removed while preserving stable
+source order for equal scores.
+
 Are.na API access and availability can change. The plugin does not store Are.na
 credentials or require a login for public search results. Save only content you
 have permission to use.

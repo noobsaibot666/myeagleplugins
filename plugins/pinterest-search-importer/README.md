@@ -82,6 +82,10 @@ imports. Visual/image search is not exposed in the plugin UI.
 Pinterest results are collected progressively as Pinterest's infinite-scroll
 page loads more Pins; the plugin does not impose a result-count cap.
 
+Results are locally ranked using title, description, author, exact-phrase, and
+all-term matches. Duplicate image URLs are removed while preserving stable
+source order for equal scores.
+
 ## Pinterest login, security, and policy
 
 Sign in only through Pinterest's page in the embedded browser. The plugin does
