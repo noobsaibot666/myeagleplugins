@@ -263,7 +263,7 @@ async function collectResults() {
 
 function startResultPolling() {
   if (resultPoll) window.clearInterval(resultPoll);
-  resultPoll = window.setInterval(() => void collectResults(), 1400);
+  resultPoll = window.setInterval(() => void collectResults(), 4000);
 }
 
 async function advancePinterestResults() {

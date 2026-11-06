@@ -353,12 +353,27 @@ function decoratePinterestCards() {
     }
   });
 
+  let inspectionScheduled = false;
+  const pendingInspectionRoots = new Set();
+  const scheduleInspect = (root) => {
+    if (!root) return;
+    pendingInspectionRoots.add(root);
+    if (inspectionScheduled) return;
+    inspectionScheduled = true;
+    const schedule = typeof window.setTimeout === "function" ? window.setTimeout : (callback) => callback();
+    schedule(() => {
+      inspectionScheduled = false;
+      const roots = Array.from(pendingInspectionRoots);
+      pendingInspectionRoots.clear();
+      for (const pendingRoot of roots) inspect(pendingRoot);
+    }, 50);
+  };
   const observer = new window.MutationObserver((records) => {
     for (const record of records) {
       if (record.type === "attributes")
-        inspect(/** @type {Element} */ (record.target));
+        scheduleInspect(/** @type {Element} */ (record.target));
       for (const node of Array.from(record.addedNodes)) {
-        if (node.nodeType === 1) inspect(/** @type {Element} */ (node));
+        if (node.nodeType === 1) scheduleInspect(/** @type {Element} */ (node));
       }
     }
   });
@@ -416,8 +431,26 @@ function getCollectResultsScript() {
 function getAdvanceResultsScript() {
   return `(() => {
     const amount = Math.max(window.innerHeight || 800, 600);
-    const candidates = [
+    const cached = window.__eaglePinterestScrollRoot;
+    if (cached && cached.scrollHeight > cached.clientHeight + 20) {
+      cached.scrollTop += amount;
+      return true;
+    }
+    const preferred = [
       document.scrollingElement,
+      document.querySelector('[data-test-id="search-feed"]'),
+      document.querySelector('main'),
+      document.querySelector('[role="main"]'),
+    ].filter((element, index, all) => element && all.indexOf(element) === index);
+    const preferredScroller = preferred.find(
+      (element) => element.scrollHeight > element.clientHeight + 20,
+    );
+    if (preferredScroller) {
+      window.__eaglePinterestScrollRoot = preferredScroller;
+      preferredScroller.scrollTop += amount;
+      return true;
+    }
+    const candidates = [
       document.documentElement,
       document.body,
       ...Array.from(document.querySelectorAll("*")),
@@ -432,6 +465,7 @@ function getAdvanceResultsScript() {
       (a, b) => b.scrollHeight - b.clientHeight - (a.scrollHeight - a.clientHeight),
     )[0];
     if (scroller) {
+      window.__eaglePinterestScrollRoot = scroller;
       scroller.scrollTop += amount;
       return true;
     }
