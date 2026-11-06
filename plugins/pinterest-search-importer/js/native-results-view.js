@@ -24,21 +24,14 @@ function createResultsView({ grid, emptyState, resultCount, emptyTitle, emptyMes
       image.addEventListener("error", () => {
         image.replaceWith(Object.assign(document.createElement("div"), { className: "result-card-image-error", textContent: "Image unavailable" }));
       }, { once: true });
-      const body = document.createElement("div");
-      body.className = "result-card-body";
-      const title = document.createElement("div");
-      title.className = "result-card-title";
-      title.textContent = pin.title || "Untitled Pin";
-      const source = document.createElement("div");
-      source.className = "result-card-source";
-      source.textContent = pin.author ? `Pinterest · ${pin.author}` : "Pinterest";
-      body.append(title, source);
       const action = document.createElement("button");
       action.type = "button";
       action.className = "result-card-action";
-      action.textContent = "Save to Eagle";
+      action.textContent = "↓";
+      action.setAttribute("aria-label", "Save to Eagle");
+      action.title = "Save to Eagle";
       action.addEventListener("click", () => onSave(pin, action));
-      card.append(image, body, action);
+      card.append(image, action);
       grid.append(card);
       cards.set(pin.pinId, action);
     }
@@ -47,9 +40,25 @@ function createResultsView({ grid, emptyState, resultCount, emptyTitle, emptyMes
     const action = cards.get(status?.key || status?.pinId);
     if (!action) return;
     action.className = "result-card-action";
-    if (status.state === "queued" || status.state === "importing") { action.classList.add("saving"); action.textContent = "Saving…"; action.disabled = true; }
-    else if (status.state === "done") { action.classList.add("saved"); action.textContent = "Saved"; action.disabled = true; }
-    else if (status.state === "error") { action.classList.add("retry"); action.textContent = "Retry"; action.disabled = false; }
+    if (status.state === "queued" || status.state === "importing") {
+      action.classList.add("saving");
+      action.textContent = "…";
+      action.setAttribute("aria-label", "Saving to Eagle");
+      action.title = "Saving to Eagle";
+      action.disabled = true;
+    } else if (status.state === "done") {
+      action.classList.add("saved");
+      action.textContent = "✓";
+      action.setAttribute("aria-label", "Saved to Eagle");
+      action.title = "Saved to Eagle";
+      action.disabled = true;
+    } else if (status.state === "error") {
+      action.classList.add("retry");
+      action.textContent = "↻";
+      action.setAttribute("aria-label", "Retry save to Eagle");
+      action.title = status.error || "Retry save to Eagle";
+      action.disabled = false;
+    }
   };
   return { render, updateStatus, setEmpty };
 }

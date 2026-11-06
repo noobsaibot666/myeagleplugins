@@ -34,11 +34,8 @@ button { cursor:pointer; }
 .result-card { position:relative; display:inline-block; width:100%; margin:0 0 12px; overflow:hidden; break-inside:avoid; border:1px solid #34363b; border-radius:8px; background:#26282c; vertical-align:top; }
 .result-card img { display:block; width:100%; min-height:100px; max-height:600px; object-fit:cover; background:#303237; }
 .result-card-image-error { display:grid; place-items:center; min-height:150px; color:#8e9299; }
-.result-card-body { padding:9px 10px 10px; }
-.result-card-title { overflow:hidden; color:#e7e8ea; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
-.result-card-source { margin-top:3px; overflow:hidden; color:#92959c; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
-.result-card-action { position:absolute; right:9px; bottom:48px; padding:7px 10px; border:1px solid #ffffff55; border-radius:6px; background:#25272b; color:#fff; box-shadow:0 3px 12px #0006; opacity:0; transform:translateY(4px); transition:opacity .15s,transform .15s; }
-.result-card:hover .result-card-action, .result-card:focus-within .result-card-action { opacity:1; transform:none; }
+.result-card-action { position:absolute; left:50%; bottom:12px; display:grid; place-items:center; width:34px; height:34px; padding:0; border:1px solid #ffffff99; border-radius:50%; background:#25272bdd; color:#fff; font-size:20px; line-height:1; box-shadow:0 3px 12px #0008; opacity:0; transform:translate(-50%,4px); transition:opacity .15s,transform .15s; }
+.result-card:hover .result-card-action, .result-card:focus-within .result-card-action { opacity:1; transform:translate(-50%,0); }
 .result-card-action.saving { color:#ffcf8a; }
 .result-card-action.saved { background:#28643f; }
 .result-card-action.retry { background:#71352e; }

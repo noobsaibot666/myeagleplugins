@@ -110,7 +110,9 @@ async function savePin(pin, action) {
   const job = { ...pin, targetFolderIds: getCurrentTargetFolderIds(eagle), settings: { ...settings }, searchTerm: searchInput?.value.trim() || "" };
   action.disabled = true;
   action.className = "result-card-action saving";
-  action.textContent = "Saving…";
+  action.textContent = "…";
+  action.setAttribute("aria-label", "Saving to Eagle");
+  action.title = "Saving to Eagle";
   await importQueue.enqueue(job);
 }
 
