@@ -318,4 +318,3 @@ git commit -m "docs: document Pinterest Search Importer release and limitations"
 - Pinterest policy/security constraints: covered by Product decisions and Task 6.
 - Automated tests and manual verification: covered by Tasks 2–4 and Task 6.
 - No direct library-file mutation, password collection, or unattended scraping is included.
-

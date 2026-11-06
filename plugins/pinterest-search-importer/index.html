@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pinterest Search Importer</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <nav class="search-tabs" role="tablist" aria-label="Search mode">
+      <button
+        id="keywordTab"
+        type="button"
+        role="tab"
+        aria-selected="true"
+        aria-controls="pinterestView"
+      >
+        Keyword search
+      </button>
+      <button
+        id="imageTab"
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="imageSearchPanel"
+        tabindex="-1"
+      >
+        Image search
+      </button>
+    </nav>
+    <header class="toolbar">
+      <form id="searchForm" class="search-form">
+        <input
+          id="searchInput"
+          type="search"
+          placeholder="Search Pinterest"
+          aria-label="Search Pinterest"
+          autocomplete="off"
+        />
+        <button id="searchButton" type="submit">Search</button>
+      </form>
+      <span id="targetLabel" class="target-label">Saving to: —</span>
+      <span
+        id="importStatus"
+        class="import-status"
+        role="status"
+        aria-live="polite"
+      ></span>
+      <span
+        id="importCounts"
+        class="import-counts"
+        role="status"
+        aria-live="polite"
+      >
+        Imported 0 · Queued 0 · Failed 0
+      </span>
+      <button
+        id="clearHistoryButton"
+        class="settings-button"
+        type="button"
+        disabled
+      >
+        Clear session history
+      </button>
+      <button
+        id="openPinterestButton"
+        class="fallback-button"
+        type="button"
+        hidden
+      >
+        Open Pinterest
+      </button>
+      <button
+        id="settingsButton"
+        class="settings-button"
+        type="button"
+        aria-label="Settings"
+        title="Settings"
+        aria-expanded="false"
+        aria-controls="settingsPanel"
+      >
+        Settings
+      </button>
+    </header>
+
+    <section
+      id="settingsPanel"
+      class="settings-panel"
+      aria-label="Import settings"
+      hidden
+    >
+      <label class="variant-setting" for="imageVariant"
+        >Image size
+        <select id="imageVariant">
+          <option value="1200x" selected>1200x</option>
+          <option value="original">Original</option>
+          <option value="600x">600x</option>
+        </select>
+      </label>
+      <label
+        ><input id="addPinterestTag" type="checkbox" checked /> Add Pinterest
+        tag</label
+      >
+      <label
+        ><input id="addSearchTag" type="checkbox" /> Add search-term tag</label
+      >
+      <label
+        ><input id="openPinAfterImport" type="checkbox" /> Open Eagle item after
+        import</label
+      >
+      <button id="resetSettingsButton" class="settings-button" type="button">
+        Reset settings
+      </button>
+      <p>
+        Image size uses available variants; otherwise the best supplied image is
+        used. Only these preferences are saved locally. Session history can be
+        cleared in the toolbar.
+      </p>
+    </section>
+
+    <section
+      id="imageSearchPanel"
+      class="image-search-panel"
+      role="tabpanel"
+      aria-labelledby="imageTab"
+      hidden
+    >
+      <h1>Image search</h1>
+      <p class="compatibility-notice">
+        Visual search compatibility is planned; keyword search is available now.
+      </p>
+      <p>
+        The original visual-search implementation is unavailable. You can
+        preview an input here; it will stay in this session and will not run a
+        visual search.
+      </p>
+      <div class="image-actions">
+        <button id="eagleImageButton" class="settings-button" type="button">
+          Use Eagle-selected image
+        </button>
+        <button id="clipboardImageButton" class="settings-button" type="button">
+          Use clipboard image
+        </button>
+        <button id="clearImageButton" class="settings-button" type="button">
+          Clear image
+        </button>
+      </div>
+      <div id="imageDropZone" class="image-drop-zone">
+        <label for="imageFileInput"
+          >Drop a local image here, or choose an image file.</label
+        >
+        <input id="imageFileInput" type="file" accept="image/*" />
+        <img
+          id="imagePreview"
+          alt="Selected image compatibility preview"
+          hidden
+        />
+      </div>
+      <p id="imageInputStatus" role="status" aria-live="polite">
+        No image selected. Images stay in this session only.
+      </p>
+    </section>
+
+    <p id="loginNotice" class="login-notice" hidden>
+      Sign in to Pinterest inside the embedded Pinterest page below. Your login
+      stays in that page.
+    </p>
+    <!-- plugin.js sets an absolute preload file URL before the first navigation. -->
+    <webview
+      id="pinterestView"
+      role="tabpanel"
+      aria-labelledby="keywordTab"
+      webpreferences="contextIsolation=yes,nodeIntegration=no,sandbox=yes"
+      allowpopups
+    ></webview>
+
+    <script src="js/plugin.js"></script>
+  </body>
+</html>

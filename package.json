@@ -5,6 +5,7 @@
   "description": "Local dev environment for building Eagle (eagle.cool) plugins. Not published, not loaded by Eagle itself — dev tooling only.",
   "scripts": {
     "new": "node scripts/new-plugin.js",
+    "test": "npm --prefix plugins/pinterest-search-importer test",
     "lint": "eslint plugins",
     "format": "prettier --write \"plugins/**/*.{js,html,css,json}\""
   },
