@@ -234,6 +234,7 @@ test("result collection does not force Pinterest to scroll while the user choose
 
 test("pagination uses a separate explicit advance script", () => {
   const script = getAdvanceResultsScript();
+  assert.match(script, /querySelectorAll\("\*"\)/);
   assert.match(script, /scrollBy|scrollTop/);
   assert.notEqual(script, getCollectResultsScript());
 });

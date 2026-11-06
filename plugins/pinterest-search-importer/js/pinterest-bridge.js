@@ -416,14 +416,30 @@ function getCollectResultsScript() {
 function getAdvanceResultsScript() {
   return `(() => {
     const amount = Math.max(window.innerHeight || 800, 600);
+    const candidates = [
+      document.scrollingElement,
+      document.documentElement,
+      document.body,
+      ...Array.from(document.querySelectorAll("*")),
+    ].filter((element, index, all) => {
+      if (!element || all.indexOf(element) !== index) return false;
+      if (element.scrollHeight <= element.clientHeight + 20) return false;
+      if (element === document.scrollingElement || element === document.documentElement || element === document.body) return true;
+      const style = window.getComputedStyle(element);
+      return /auto|scroll/i.test(style.overflowY || "");
+    });
+    const scroller = candidates.sort(
+      (a, b) => b.scrollHeight - b.clientHeight - (a.scrollHeight - a.clientHeight),
+    )[0];
+    if (scroller) {
+      scroller.scrollTop += amount;
+      return true;
+    }
     if (typeof window.scrollBy === "function") {
       window.scrollBy(0, amount);
       return true;
     }
-    const root = document.scrollingElement || document.documentElement;
-    if (!root) return false;
-    root.scrollTop += amount;
-    return true;
+    return false;
   })()`;
 }
 
